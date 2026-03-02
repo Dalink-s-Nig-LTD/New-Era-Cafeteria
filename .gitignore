@@ -1,0 +1,35 @@
+# Node.js
+target/
+node_modules/
+npm-debug.log*
+yarn-error.log
+
+# Logs
+*.log
+
+# Build output
+dist/
+build/
+out/
+
+# System files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor/IDE
+.vscode/
+.idea/
+*.iml
+
+# Environment files
+.env
+.env.local
+.env.production
+
+# Tauri
+src-tauri/target/
+src-tauri/.cargo/
+
+# Vite
+.vite/
