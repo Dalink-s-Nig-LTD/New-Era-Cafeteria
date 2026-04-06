@@ -33,3 +33,7 @@ src-tauri/.cargo/
 
 # Vite
 .vite/
+
+# Local scripts
+toggle-backend.ps1
+.convex-backend.pid

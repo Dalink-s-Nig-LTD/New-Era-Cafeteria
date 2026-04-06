@@ -8,8 +8,9 @@ import React, {
   useCallback,
 } from "react";
 
-import { useMutation, useQuery } from "@/lib/convexApi";
+import { useMutation } from "@/lib/convexApi";
 import { api } from "@/lib/convexApi";
+import { convex } from "@/lib/convex";
 import {
   CartItem,
   MenuItem,
@@ -21,6 +22,7 @@ import {
 import type { Id } from "../../convex/_generated/dataModel";
 import { useAuth } from "./AuthContext";
 import { orderQueue } from "@/lib/orderQueue";
+import { getSqliteDB } from "@/lib/sqlite";
 import { getConnectionMonitor } from "@/lib/connectionMonitor";
 
 // CartContext definition
@@ -81,15 +83,6 @@ export function CartProvider({ children }: { children: ReactNode }) {
     };
     initOrderQueue();
   }, [isTauri]);
-
-  // Fetch all orders from database for daily reports
-  const allOrdersFromDB = useQuery(api.orders.getAllOrders, {
-    limit: 200,
-    daysBack: 7,
-  });
-
-  // Fetch access codes to build code-to-shift mapping
-  const accessCodesFromDB = useQuery(api.accessCodes.listAccessCodes);
 
   const { code: cashierCode, userName: cashierName } = useAuth();
   const createOrder = useMutation(api.orders.createOrder);
@@ -275,8 +268,18 @@ export function CartProvider({ children }: { children: ReactNode }) {
     // Tauri (desktop): use local SQLite only, filtered to current cashier
     if (isTauri && queueInitialized) {
       try {
-        const allQueued = await orderQueue.getAllOrders();
-        const filtered = allQueued
+        const sqlite = getSqliteDB();
+        const [cachedOrders, queuedOrders] = await Promise.all([
+          sqlite
+            ? sqlite.getCachedOrdersByRange(
+                todayTimestamp,
+                todayTimestamp + 24 * 60 * 60 * 1000,
+              )
+            : Promise.resolve([]),
+          orderQueue.getAllOrders(),
+        ]);
+
+        const localOrders = queuedOrders
           .filter(
             (qo) =>
               qo.createdAt >= todayTimestamp &&
@@ -309,31 +312,16 @@ export function CartProvider({ children }: { children: ReactNode }) {
             }),
           );
 
-        console.log(
-          `[CartContext] Tauri getTodaysOrders: ${filtered.length} orders from SQLite (cashier: ${cashierCode})`,
-        );
-        return filtered;
-      } catch (error) {
-        console.error(
-          "[CartContext] Failed to read SQLite orders for report:",
-          error,
-        );
-        return [];
-      }
-    }
-
-    // Web (browser): use Convex DB only, filtered to current cashier
-    const dbOrders: ReportOrder[] = allOrdersFromDB
-      ? allOrdersFromDB
+        const cachedReportOrders: ReportOrder[] = (cachedOrders || [])
           .filter(
             (order) =>
               order.createdAt >= todayTimestamp &&
-              order.orderType !== "special" &&
+              (order.orderType || "regular") !== "special" &&
               order.cashierCode === cashierCode,
           )
           .map((order) => ({
             id: order._id,
-            items: order.items.map((item) => ({
+            items: (order.items || []).map((item) => ({
               id: item.menuItemId || `custom-${item.name}`,
               name: item.name,
               price: item.price,
@@ -346,8 +334,54 @@ export function CartProvider({ children }: { children: ReactNode }) {
             paymentMethod: order.paymentMethod,
             status: order.status,
             cashierCode: order.cashierCode,
-          }))
-      : [];
+          }));
+
+        const filtered = [...cachedReportOrders, ...localOrders].sort(
+          (a, b) => b.timestamp.getTime() - a.timestamp.getTime(),
+        );
+
+        console.log(
+          `[CartContext] Tauri getTodaysOrders: ${filtered.length} orders from SQLite cache + queue (cashier: ${cashierCode})`,
+        );
+        return filtered;
+      } catch (error) {
+        console.error(
+          "[CartContext] Failed to read SQLite orders for report:",
+          error,
+        );
+        return [];
+      }
+    }
+
+    // Web (browser): use Convex DB only, filtered to current cashier
+    const allOrdersFromDB = await convex.query(api.orders.getAllOrders, {
+      limit: 200,
+      daysBack: 7,
+    });
+
+    const dbOrders: ReportOrder[] = allOrdersFromDB
+      .filter(
+        (order) =>
+          order.createdAt >= todayTimestamp &&
+          order.orderType !== "special" &&
+          order.cashierCode === cashierCode,
+      )
+      .map((order) => ({
+        id: order._id,
+        items: order.items.map((item) => ({
+          id: item.menuItemId || `custom-${item.name}`,
+          name: item.name,
+          price: item.price,
+          quantity: item.quantity,
+          category: item.category || "Food",
+          isCustom: item.isCustom || !item.menuItemId,
+        })),
+        total: order.total,
+        timestamp: new Date(order.createdAt),
+        paymentMethod: order.paymentMethod,
+        status: order.status,
+        cashierCode: order.cashierCode,
+      }));
 
     console.log(
       `[CartContext] Web getTodaysOrders: ${dbOrders.length} orders from Convex`,
@@ -365,15 +399,18 @@ export function CartProvider({ children }: { children: ReactNode }) {
     );
 
     // Build a map of access code -> shift assignment
+    const accessCodesFromDB = await convex.query(
+      api.accessCodes.listAccessCodes,
+      {},
+    );
+
     const codeToShift: Record<
       string,
       "morning" | "afternoon" | "evening" | undefined
     > = {};
-    if (accessCodesFromDB) {
-      accessCodesFromDB.forEach((ac) => {
-        codeToShift[ac.code] = ac.shift;
-      });
-    }
+    accessCodesFromDB.forEach((ac) => {
+      codeToShift[ac.code] = ac.shift;
+    });
 
     // Filter orders by access code shift assignment (not time-based)
     if (shiftFilter !== "all") {

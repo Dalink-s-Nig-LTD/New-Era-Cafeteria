@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -7,6 +7,7 @@ import { api, useQuery } from "@/lib/convexApi";
 import { useCart } from "@/contexts/CartContext";
 import { MenuItem } from "@/types/cafeteria";
 import { QuantityPrompt } from "./QuantityPrompt";
+import { getSqliteDB } from "@/lib/sqlite";
 
 export function MenuGrid() {
   const [selectedMenuType, setSelectedMenuType] = useState<
@@ -14,8 +15,61 @@ export function MenuGrid() {
   >("food");
   const [selectedCategory, setSelectedCategory] = useState("All");
   const { addItem } = useCart();
-  const items = useQuery(api.menuItems.getAllMenuItems);
-  const categories = useQuery(api.menuItems.getCategories);
+  const isTauri = typeof window !== "undefined" && "__TAURI__" in window;
+  const [cachedItems, setCachedItems] = useState<Array<{
+    _id: string;
+    name: string;
+    price: number;
+    category: string;
+    image?: string;
+    available: boolean;
+  }> | null>(null);
+  const [cacheLoading, setCacheLoading] = useState(isTauri);
+
+  const queryItems = useQuery(api.menuItems.getAllMenuItems, {});
+  const queryCategories = useQuery(api.menuItems.getCategories, {});
+
+  useEffect(() => {
+    if (!isTauri) return;
+
+    const loadCachedMenu = async () => {
+      try {
+        const sqlite = getSqliteDB();
+        if (!sqlite) {
+          setCacheLoading(false);
+          return;
+        }
+
+        const rows = await sqlite.getCachedMenuItems();
+        setCachedItems(rows);
+      } catch (error) {
+        console.error("Failed to load cached menu:", error);
+      } finally {
+        setCacheLoading(false);
+      }
+    };
+
+    loadCachedMenu();
+  }, [isTauri]);
+
+  const cachedCategories = [
+    "All",
+    ...Array.from(
+      new Set((cachedItems || []).map((item) => item.category)),
+    ).sort(),
+  ];
+
+  const hasCachedMenu = !!cachedItems && cachedItems.length > 0;
+  const items = isTauri
+    ? hasCachedMenu
+      ? cachedItems
+      : queryItems || []
+    : queryItems;
+  const categories = isTauri
+    ? hasCachedMenu
+      ? cachedCategories
+      : queryCategories || ["All"]
+    : queryCategories;
 
   // Map categories to menu types
   const foodCategories = ["Rice", "Protein", "Swallow", "Soup", "Snacks"];
@@ -53,7 +107,9 @@ export function MenuGrid() {
       }
     }) || [];
 
-  const [pendingSpecialItem, setPendingSpecialItem] = useState<MenuItem | null>(null);
+  const [pendingSpecialItem, setPendingSpecialItem] = useState<MenuItem | null>(
+    null,
+  );
 
   const handleAddItem = (item: MenuItem) => {
     if (!item.available) return;
@@ -69,7 +125,12 @@ export function MenuGrid() {
     addItem(item, qty);
   };
 
-  if (!items || !categories) {
+  const isLoadingMenu = isTauri
+    ? !hasCachedMenu &&
+      (queryItems === undefined || queryCategories === undefined)
+    : queryItems === undefined || queryCategories === undefined;
+
+  if (isLoadingMenu || !items || !categories) {
     return (
       <div className="flex-1 flex items-center justify-center h-full">
         <span className="text-muted-foreground">Loading menu...</span>

@@ -17,6 +17,8 @@ export default defineSchema({
     createdBy: v.optional(v.id("adminUsers")),
     failedLoginAttempts: v.optional(v.number()),
     lockedUntil: v.optional(v.number()),
+    resetCode: v.optional(v.string()),
+    resetCodeExpiresAt: v.optional(v.number()),
   })
     .index("by_email", ["email"])
     .index("by_role", ["role"]),

@@ -1,6 +1,7 @@
 import React, { useState } from "react";
-import { useQuery } from "convex/react";
 import { api } from "../../../convex/_generated/api";
+import { convex } from "@/lib/convex";
+import { getSqliteDB } from "@/lib/sqlite";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -70,10 +71,9 @@ const reportOptions: ReportOption[] = [
 ];
 
 export function ExportReports() {
-  const ordersStats = useQuery(api.orders.getOrdersStats);
-  const allOrders = useQuery(api.orders.getAllOrders, { limit: 500, daysBack: 90 });
-  const menuItems = useQuery(api.menuItems.getAllMenuItems);
-  const accessCodes = useQuery(api.accessCodes.listAccessCodes);
+  const [allOrders, setAllOrders] = useState<any[] | null>(null);
+  const [menuItems, setMenuItems] = useState<any[] | null>(null);
+  const [accessCodes, setAccessCodes] = useState<any[] | null>(null);
   const [selectedReport, setSelectedReport] = useState<ReportType>("sales");
   const [exportFormat, setExportFormat] = useState<ExportFormat>("pdf");
   const [salesFormat, setSalesFormat] = useState<SalesFormat>("receipt");
@@ -87,12 +87,49 @@ export function ExportReports() {
   const [isExporting, setIsExporting] = useState(false);
   const [isPrinting, setIsPrinting] = useState(false);
   const { toast } = useToast();
+  const isDesktop = typeof window !== "undefined" && "__TAURI__" in window;
+
+  const loadReportData = async (report: ReportType) => {
+    let orders = allOrders;
+    let menu = menuItems;
+    let codes = accessCodes;
+
+    if ((report === "sales" || report === "orders") && !orders) {
+      if (isDesktop) {
+        const sqlite = getSqliteDB();
+        orders = sqlite ? await sqlite.getCachedOrders() : [];
+      } else {
+        orders = await convex.query(api.orders.getAllOrders, {
+          limit: 500,
+          daysBack: 90,
+        });
+      }
+      setAllOrders(orders);
+    }
+
+    if (report === "inventory" && !menu) {
+      menu = await convex.query(api.menuItems.getAllMenuItems, {});
+      setMenuItems(menu);
+    }
+
+    if (report === "users" && !codes) {
+      codes = await convex.query(api.accessCodes.listAccessCodes, {});
+      setAccessCodes(codes);
+    }
+
+    return {
+      orders: orders || [],
+      menu: menu || [],
+      codes: codes || [],
+    };
+  };
 
   const handlePrint = async () => {
     setIsPrinting(true);
 
     try {
-      printReceiptStylePDF();
+      const reportData = await loadReportData("sales");
+      printReceiptStylePDF(reportData.orders);
       toast({
         title: "Opening Print Dialog",
         description: "Your receipt is ready to print",
@@ -109,19 +146,19 @@ export function ExportReports() {
     setIsPrinting(false);
   };
 
-  const generateReceiptStylePDF = () => {
+  const generateReceiptStylePDF = (ordersData: any[]) => {
     const doc = new jsPDF() as any;
     const pageWidth = doc.internal.pageSize.width;
     const margin = 15;
     let y = 20;
 
     const filteredOrders =
-      dateRange.from && dateRange.to && allOrders
-        ? allOrders.filter((order) => {
+      dateRange.from && dateRange.to
+        ? ordersData.filter((order) => {
             const orderDate = new Date(order.createdAt);
             return orderDate >= dateRange.from! && orderDate <= dateRange.to!;
           })
-        : allOrders || [];
+        : ordersData;
 
     // Header
     doc.setFontSize(16);
@@ -368,14 +405,14 @@ export function ExportReports() {
     doc.save(fileName);
   };
 
-  const printReceiptStylePDF = () => {
+  const printReceiptStylePDF = (ordersData: any[]) => {
     const filteredOrders =
-      dateRange.from && dateRange.to && allOrders
-        ? allOrders.filter((order) => {
+      dateRange.from && dateRange.to
+        ? ordersData.filter((order) => {
             const orderDate = new Date(order.createdAt);
             return orderDate >= dateRange.from! && orderDate <= dateRange.to!;
           })
-        : allOrders || [];
+        : ordersData;
 
     // Create an iframe for printing
     const printFrame = document.createElement("iframe");
@@ -415,23 +452,25 @@ export function ExportReports() {
 
     // Build plain text report (works reliably in WebView2)
     const W = 40;
-    const SEP = '-'.repeat(W);
-    const pad = (l: string, r: string) => l + ' '.repeat(Math.max(1, W - l.length - r.length)) + r;
+    const SEP = "-".repeat(W);
+    const pad = (l: string, r: string) =>
+      l + " ".repeat(Math.max(1, W - l.length - r.length)) + r;
 
-    const periodStr = dateRange.from && dateRange.to
-      ? `${format(dateRange.from, "dd/MM/yyyy")} - ${format(dateRange.to, "dd/MM/yyyy")}`
-      : format(new Date(), "dd/MM/yyyy");
+    const periodStr =
+      dateRange.from && dateRange.to
+        ? `${format(dateRange.from, "dd/MM/yyyy")} - ${format(dateRange.to, "dd/MM/yyyy")}`
+        : format(new Date(), "dd/MM/yyyy");
 
     const center = (s: string) => {
       const spaces = Math.max(0, Math.floor((W - s.length) / 2));
-      return ' '.repeat(spaces) + s;
+      return " ".repeat(spaces) + s;
     };
 
     const lines: string[] = [];
-    lines.push(center('New Era Cafeteria'));
-    lines.push(center('Redeemer\'s University, Ede'));
+    lines.push(center("New Era Cafeteria"));
+    lines.push(center("Redeemer's University, Ede"));
     lines.push(SEP);
-    lines.push(center('SALES REPORT'));
+    lines.push(center("SALES REPORT"));
     lines.push(center(periodStr));
     lines.push(SEP);
 
@@ -442,7 +481,7 @@ export function ExportReports() {
       grandTotal += dayTotal;
       totalOrders += dayOrders.length;
 
-      lines.push('');
+      lines.push("");
       lines.push(`  ${format(dayDate, "EEE, dd MMM yyyy")}`);
 
       const morningOrders = dayOrders.filter((order) => {
@@ -455,38 +494,71 @@ export function ExportReports() {
       });
 
       if (morningOrders.length > 0) {
-        const morningTotal = morningOrders.reduce((sum, order) => sum + order.total, 0);
-        const mCash = morningOrders.filter(o => o.paymentMethod === "cash").length;
-        const mTransfer = morningOrders.filter(o => o.paymentMethod === "transfer").length;
-        lines.push(pad(`  Morning (${morningOrders.length} C:${mCash} T:${mTransfer})`, `N${morningTotal.toLocaleString()}`));
+        const morningTotal = morningOrders.reduce(
+          (sum, order) => sum + order.total,
+          0,
+        );
+        const mCash = morningOrders.filter(
+          (o) => o.paymentMethod === "cash",
+        ).length;
+        const mTransfer = morningOrders.filter(
+          (o) => o.paymentMethod === "transfer",
+        ).length;
+        lines.push(
+          pad(
+            `  Morning (${morningOrders.length} C:${mCash} T:${mTransfer})`,
+            `N${morningTotal.toLocaleString()}`,
+          ),
+        );
       }
       if (nightOrders.length > 0) {
-        const nightTotal = nightOrders.reduce((sum, order) => sum + order.total, 0);
-        const nCash = nightOrders.filter(o => o.paymentMethod === "cash").length;
-        const nTransfer = nightOrders.filter(o => o.paymentMethod === "transfer").length;
-        lines.push(pad(`  Night (${nightOrders.length} C:${nCash} T:${nTransfer})`, `N${nightTotal.toLocaleString()}`));
+        const nightTotal = nightOrders.reduce(
+          (sum, order) => sum + order.total,
+          0,
+        );
+        const nCash = nightOrders.filter(
+          (o) => o.paymentMethod === "cash",
+        ).length;
+        const nTransfer = nightOrders.filter(
+          (o) => o.paymentMethod === "transfer",
+        ).length;
+        lines.push(
+          pad(
+            `  Night (${nightOrders.length} C:${nCash} T:${nTransfer})`,
+            `N${nightTotal.toLocaleString()}`,
+          ),
+        );
       }
 
-      const cashCount = dayOrders.filter(o => o.paymentMethod === "cash").length;
-      const transferCount = dayOrders.filter(o => o.paymentMethod === "transfer").length;
-      lines.push(pad(`  Total (${dayOrders.length} C:${cashCount} T:${transferCount})`, `N${dayTotal.toLocaleString()}`));
+      const cashCount = dayOrders.filter(
+        (o) => o.paymentMethod === "cash",
+      ).length;
+      const transferCount = dayOrders.filter(
+        (o) => o.paymentMethod === "transfer",
+      ).length;
+      lines.push(
+        pad(
+          `  Total (${dayOrders.length} C:${cashCount} T:${transferCount})`,
+          `N${dayTotal.toLocaleString()}`,
+        ),
+      );
     });
 
     lines.push(SEP);
-    lines.push('        SUMMARY');
+    lines.push("        SUMMARY");
     lines.push(SEP);
-    lines.push(pad('Total Orders:', `${totalOrders}`));
-    lines.push(pad('Total Days:', `${sortedDays.length}`));
-    lines.push(pad('Cash Payments:', `${totalCash}`));
-    lines.push(pad('Transfer Payments:', `${totalTransfer}`));
+    lines.push(pad("Total Orders:", `${totalOrders}`));
+    lines.push(pad("Total Days:", `${sortedDays.length}`));
+    lines.push(pad("Cash Payments:", `${totalCash}`));
+    lines.push(pad("Transfer Payments:", `${totalTransfer}`));
     lines.push(SEP);
-    lines.push(pad('TOTAL REVENUE:', `N${grandTotal.toLocaleString()}`));
+    lines.push(pad("TOTAL REVENUE:", `N${grandTotal.toLocaleString()}`));
     lines.push(SEP);
-    lines.push('');
+    lines.push("");
     lines.push(`  Printed: ${format(new Date(), "dd/MM/yyyy HH:mm")}`);
-    lines.push('  Thank you for your business!');
+    lines.push("  Thank you for your business!");
 
-    const reportText = lines.join('\n');
+    const reportText = lines.join("\n");
 
     printDoc.write(`<html><head><title>Sales Report</title><style>
       @page { size: 80mm auto; margin: 0; }
@@ -504,7 +576,11 @@ export function ExportReports() {
     }, 300);
   };
 
-  const generatePDFReport = () => {
+  const generatePDFReport = (reportData: {
+    orders: any[];
+    menu: any[];
+    codes: any[];
+  }) => {
     const doc = new jsPDF() as any;
     const pageWidth = doc.internal.pageSize.width;
 
@@ -526,14 +602,14 @@ export function ExportReports() {
 
     let startY = 48;
 
-    if (selectedReport === "sales" && allOrders) {
+    if (selectedReport === "sales") {
       const filteredOrders =
         dateRange.from && dateRange.to
-          ? allOrders.filter((order) => {
+          ? reportData.orders.filter((order) => {
               const orderDate = new Date(order.createdAt);
               return orderDate >= dateRange.from! && orderDate <= dateRange.to!;
             })
-          : allOrders;
+          : reportData.orders;
 
       // Group orders by day
       const ordersByDay = filteredOrders.reduce(
@@ -768,14 +844,14 @@ export function ExportReports() {
           4: { cellWidth: 34, halign: "right" },
         },
       });
-    } else if (selectedReport === "orders" && allOrders) {
+    } else if (selectedReport === "orders") {
       const filteredOrders =
         dateRange.from && dateRange.to
-          ? allOrders.filter((order) => {
+          ? reportData.orders.filter((order) => {
               const orderDate = new Date(order.createdAt);
               return orderDate >= dateRange.from! && orderDate <= dateRange.to!;
             })
-          : allOrders;
+          : reportData.orders;
 
       const tableData: any[] = [];
       let grandTotal = 0;
@@ -855,16 +931,19 @@ export function ExportReports() {
           3: { cellWidth: 40, halign: "right" },
         },
       });
-    } else if (selectedReport === "inventory" && menuItems) {
-      const tableData = menuItems.map((item) => [
+    } else if (selectedReport === "inventory") {
+      const tableData = reportData.menu.map((item) => [
         item.name,
         item.category,
         `N${item.price.toLocaleString()}`,
         item.available ? "Available" : "Out of Stock",
       ]);
 
-      const totalValue = menuItems.reduce((sum, item) => sum + item.price, 0);
-      const availableCount = menuItems.filter((i) => i.available).length;
+      const totalValue = reportData.menu.reduce(
+        (sum, item) => sum + item.price,
+        0,
+      );
+      const availableCount = reportData.menu.filter((i) => i.available).length;
 
       autoTable(doc, {
         startY: startY,
@@ -873,7 +952,7 @@ export function ExportReports() {
         foot: [
           ["", "", "", ""],
           [
-            `Total Items: ${menuItems.length}`,
+            `Total Items: ${reportData.menu.length}`,
             `Available: ${availableCount}`,
             "Total Value:",
             `N${totalValue.toLocaleString()}`,
@@ -906,8 +985,8 @@ export function ExportReports() {
           3: { cellWidth: 35, halign: "center" },
         },
       });
-    } else if (selectedReport === "users" && accessCodes) {
-      const tableData = accessCodes.map((code) => {
+    } else if (selectedReport === "users") {
+      const tableData = reportData.codes.map((code) => {
         const createdDate = new Date(code.createdAt);
         const expiresDate = code.expiresAt ? new Date(code.expiresAt) : null;
         const statusText = !code.isActive
@@ -929,8 +1008,8 @@ export function ExportReports() {
         ];
       });
 
-      const activeCount = accessCodes.filter((c) => c.isActive).length;
-      const totalUsage = accessCodes.reduce(
+      const activeCount = reportData.codes.filter((c) => c.isActive).length;
+      const totalUsage = reportData.codes.reduce(
         (sum, code) => sum + code.usedCount,
         0,
       );
@@ -944,7 +1023,7 @@ export function ExportReports() {
         foot: [
           ["", "", "", "", "", "", ""],
           [
-            `Total Codes: ${accessCodes.length}`,
+            `Total Codes: ${reportData.codes.length}`,
             `Active: ${activeCount}`,
             "",
             `Total Uses: ${totalUsage}`,
@@ -996,11 +1075,12 @@ export function ExportReports() {
     setIsExporting(true);
 
     try {
+      const reportData = await loadReportData(selectedReport);
       if (exportFormat === "pdf") {
         if (selectedReport === "sales" && salesFormat === "receipt") {
-          generateReceiptStylePDF();
+          generateReceiptStylePDF(reportData.orders);
         } else {
-          generatePDFReport();
+          generatePDFReport(reportData);
         }
         toast({
           title: "Report Downloaded",

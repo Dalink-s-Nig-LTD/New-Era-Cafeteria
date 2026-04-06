@@ -3,7 +3,7 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
-import { ConvexProvider, ConvexReactClient } from "convex/react";
+import { ConvexProvider } from "convex/react";
 import { convex } from "@/lib/convex";
 import { useState, useEffect, useCallback } from "react";
 import Index from "./pages/Index";
@@ -16,27 +16,34 @@ const queryClient = new QueryClient();
 
 // Import orderQueue for initialization
 import { orderQueue } from "@/lib/orderQueue";
+import { bootstrapHistoricalOrders } from "@/lib/bootstrapHistoricalOrders";
+import { bootstrapReferenceData } from "@/lib/bootstrapReferenceData";
 
-const isTauri = typeof window !== "undefined" && ("__TAURI__" in window || "__TAURI_INTERNALS__" in window);
+const isTauri =
+  typeof window !== "undefined" &&
+  ("__TAURI__" in window || "__TAURI_INTERNALS__" in window);
 
 const App = () => {
-  const [initialized, setInitialized] = useState(false);
+  const [initialized] = useState(true);
   const [showSplash, setShowSplash] = useState(isTauri);
 
   useEffect(() => {
     const init = async () => {
       try {
         if (isTauri) {
-          await Promise.race([
-            orderQueue.init(),
-            new Promise((_, reject) => setTimeout(() => reject(new Error("Order queue init timed out")), 5000))
-          ]);
+          await orderQueue.init();
           console.log("✅ Order queue initialized successfully");
+
+          const bootstrapCount = await bootstrapHistoricalOrders(convex);
+          console.log(
+            `✅ Historical orders bootstrap complete: ${bootstrapCount} orders loaded`,
+          );
+
+          await bootstrapReferenceData(convex);
+          console.log("✅ Reference cache bootstrap complete");
         }
       } catch (e) {
-        console.error("⚠️ Order queue init failed, app will still load:", e);
-      } finally {
-        setInitialized(true);
+        console.error("⚠️ Initialization warning, app will still load:", e);
       }
     };
     init();
@@ -49,23 +56,23 @@ const App = () => {
   return (
     <>
       {showSplash && <SplashScreen onComplete={handleSplashComplete} />}
-    <ConvexProvider client={convex}>
-      <QueryClientProvider client={queryClient}>
-        <TooltipProvider>
-          <Toaster />
-          <Sonner />
-          <BrowserRouter>
-            <Routes>
-              <Route path="/" element={<Index />} />
-              <Route path="/auth" element={<Auth />} />
-              <Route path="/customer-order" element={<CustomerSelfOrder />} />
-              {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
-              <Route path="*" element={<NotFound />} />
-            </Routes>
-          </BrowserRouter>
-        </TooltipProvider>
-      </QueryClientProvider>
-    </ConvexProvider>
+      <ConvexProvider client={convex}>
+        <QueryClientProvider client={queryClient}>
+          <TooltipProvider>
+            <Toaster />
+            <Sonner />
+            <BrowserRouter>
+              <Routes>
+                <Route path="/" element={<Index />} />
+                <Route path="/auth" element={<Auth />} />
+                <Route path="/customer-order" element={<CustomerSelfOrder />} />
+                {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
+                <Route path="*" element={<NotFound />} />
+              </Routes>
+            </BrowserRouter>
+          </TooltipProvider>
+        </QueryClientProvider>
+      </ConvexProvider>
     </>
   );
 };

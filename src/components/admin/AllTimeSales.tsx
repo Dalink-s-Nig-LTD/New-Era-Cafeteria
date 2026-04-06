@@ -1,13 +1,101 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { useQuery } from "convex/react";
 import { api } from "../../../convex/_generated/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { TrendingUp, ShoppingBag, DollarSign, Users } from "lucide-react";
+import { getSqliteDB } from "@/lib/sqlite";
+
+type AllTimeSalesData = {
+  totalRevenue: number;
+  totalOrders: number;
+  avgOrderValue: number;
+  totalCustomers: number;
+};
+
+function buildAllTimeSalesData(
+  orders: Array<{
+    _id: string;
+    total: number;
+    orderType?: string;
+    cashierCode: string;
+    createdAt: number;
+  }>,
+): AllTimeSalesData {
+  const nonSpecialOrders = orders.filter(
+    (order) => (order.orderType || "regular") !== "special",
+  );
+  const totalRevenue = nonSpecialOrders.reduce(
+    (sum, order) => sum + order.total,
+    0,
+  );
+  const totalOrders = nonSpecialOrders.length;
+
+  return {
+    totalRevenue,
+    totalOrders,
+    avgOrderValue: totalOrders > 0 ? Math.round(totalRevenue / totalOrders) : 0,
+    totalCustomers: totalOrders,
+  };
+}
 
 export function AllTimeSales() {
-  const data = useQuery((api as any).getAllTimeSales.getAllTimeSales);
+  const isDesktop = typeof window !== "undefined" && "__TAURI__" in window;
+  const [localData, setLocalData] = useState<AllTimeSalesData | null>(null);
+  const [localLoading, setLocalLoading] = useState(isDesktop);
 
-  if (!data) {
+  const remoteAllOrders = useQuery(
+    api.orders.getAllOrders,
+    isDesktop ? { limit: 20000, daysBack: 36500 } : "skip",
+  );
+  const remoteSummary = useQuery(
+    api.getAllTimeSales.getAllTimeSales,
+    isDesktop ? "skip" : {},
+  );
+
+  useEffect(() => {
+    if (!isDesktop) return;
+
+    const loadLocalData = async () => {
+      try {
+        const sqlite = getSqliteDB();
+        if (!sqlite) {
+          setLocalLoading(false);
+          return;
+        }
+
+        const orders = await sqlite.getCachedOrders();
+        setLocalData(buildAllTimeSalesData(orders));
+      } catch (error) {
+        console.error("Failed to load cached all-time sales:", error);
+      } finally {
+        setLocalLoading(false);
+      }
+    };
+
+    setLocalLoading(true);
+    loadLocalData();
+  }, [isDesktop]);
+
+  const desktopRemoteData = remoteAllOrders
+    ? buildAllTimeSalesData(
+        remoteAllOrders as Array<{
+          _id: string;
+          total: number;
+          orderType?: string;
+          cashierCode: string;
+          createdAt: number;
+        }>,
+      )
+    : null;
+
+  const data = isDesktop
+    ? (localData ?? desktopRemoteData ?? null)
+    : (remoteSummary ?? null);
+  const isLoading = isDesktop
+    ? localLoading && remoteAllOrders === undefined && !localData
+    : remoteSummary === undefined;
+
+  if (isLoading || !data) {
     return (
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {[1, 2, 3, 4].map((i) => (
@@ -53,32 +141,47 @@ export function AllTimeSales() {
 
   return (
     <div className="space-y-4">
-      <h3 className="text-lg font-semibold text-foreground">All-Time Sales Summary</h3>
+      <h3 className="text-lg font-semibold text-foreground">
+        All-Time Sales Summary
+      </h3>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {stats.map((stat) => {
           const Icon = stat.icon;
           return (
-            <Card key={stat.title} className="border-border shadow-card hover:shadow-card-hover transition-shadow">
+            <Card
+              key={stat.title}
+              className="border-border shadow-card hover:shadow-card-hover transition-shadow"
+            >
               <CardContent className="p-6">
                 <div className="flex items-start justify-between">
                   <div>
-                    <p className="text-sm text-muted-foreground mb-1">{stat.title}</p>
-                    <p className="text-2xl font-bold text-foreground">{stat.value}</p>
+                    <p className="text-sm text-muted-foreground mb-1">
+                      {stat.title}
+                    </p>
+                    <p className="text-2xl font-bold text-foreground">
+                      {stat.value}
+                    </p>
                   </div>
                   <div
                     className={`w-12 h-12 rounded-xl flex items-center justify-center ${
-                      stat.color === "primary" ? "bg-primary/10" :
-                      stat.color === "accent" ? "bg-accent/20" :
-                      stat.color === "navy" ? "bg-navy/10" :
-                      "bg-success/10"
+                      stat.color === "primary"
+                        ? "bg-primary/10"
+                        : stat.color === "accent"
+                          ? "bg-accent/20"
+                          : stat.color === "navy"
+                            ? "bg-navy/10"
+                            : "bg-success/10"
                     }`}
                   >
                     <Icon
                       className={`w-6 h-6 ${
-                        stat.color === "primary" ? "text-primary" :
-                        stat.color === "accent" ? "text-accent" :
-                        stat.color === "navy" ? "text-navy" :
-                        "text-success"
+                        stat.color === "primary"
+                          ? "text-primary"
+                          : stat.color === "accent"
+                            ? "text-accent"
+                            : stat.color === "navy"
+                              ? "text-navy"
+                              : "text-success"
                       }`}
                     />
                   </div>

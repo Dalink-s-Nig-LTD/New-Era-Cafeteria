@@ -9,19 +9,24 @@ export const getFullDaySales = query(async ({ db }) => {
   const startOfDayTimestamp = startOfDay.getTime();
   const endOfDayTimestamp = endOfDay.getTime();
 
-  const allOrders = await db.query("orders").filter(q =>
-    q.and(
-      q.gte(q.field("createdAt"), startOfDayTimestamp),
-      q.lte(q.field("createdAt"), endOfDayTimestamp)
+  const allOrders = await db
+    .query("orders")
+    .withIndex("by_createdAt", (q) =>
+      q.gte("createdAt", startOfDayTimestamp).lte("createdAt", endOfDayTimestamp)
     )
-  ).collect();
+    .collect();
 
-  // Exclude special orders from sales totals
-  const orders = allOrders.filter(order => order.orderType !== "special");
-  const totalSales = orders.reduce((sum, order) => sum + order.total, 0);
+  let totalSales = 0;
+  let orderCount = 0;
+  for (const order of allOrders) {
+    if (order.orderType === "special") continue;
+    totalSales += order.total;
+    orderCount += 1;
+  }
 
   return {
     totalSales,
-    orders,
+    orderCount,
+    avgOrderValue: orderCount > 0 ? Math.round(totalSales / orderCount) : 0,
   };
 });

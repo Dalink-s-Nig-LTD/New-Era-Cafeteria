@@ -42,10 +42,11 @@ export function CashierDashboard({ onLogout }: CashierDashboardProps) {
     hasLocalData,
     localOrderCount,
     unsyncedCount,
-  } = useShiftSalesWithLocal();
-  const enabledShifts = useQuery(api.shiftSettings.getEnabledShifts) as
-    | string[]
-    | undefined;
+  } = useShiftSalesWithLocal(salesReportOpen);
+  const enabledShifts = useQuery(
+    api.shiftSettings.getEnabledShifts,
+    salesReportOpen ? {} : "skip",
+  ) as string[] | undefined;
 
   // Access code breakdown is now directly from backend (already filtered by shift assignment)
 
@@ -133,7 +134,7 @@ export function CashierDashboard({ onLogout }: CashierDashboardProps) {
 
         {/* Current Order Sidebar */}
         {!isMobile && (
-          <div className="w-80 lg:w-96 border-l border-border p-6 bg-card/50 hidden md:block overflow-y-auto">
+          <div className="w-80 lg:w-96 border-l border-border p-6 bg-card/50 hidden md:flex flex-col min-h-0 overflow-hidden">
             <Cart />
           </div>
         )}

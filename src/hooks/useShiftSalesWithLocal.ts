@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useQuery } from "@/lib/convexApi";
 import { api } from "../../convex/_generated/api";
 import { orderQueue } from "@/lib/orderQueue";
+import { getSqliteDB } from "@/lib/sqlite";
 import type { Order } from "@/types/cafeteria";
 import { useAuth } from "@/contexts/AuthContext";
 
@@ -21,26 +22,55 @@ interface ShiftSalesData {
 
 const emptyShift: ShiftData = { totalSales: 0, orderCount: 0, byAccessCode: {} };
 
+type AccessCodeLite = {
+  code: string;
+  shift?: "morning" | "afternoon" | "evening";
+  isActive: boolean;
+};
+
 /**
  * Hook that provides shift sales data.
  * - Tauri (desktop): reads from local SQLite, filtered to current cashier only.
  * - Web (browser): reads from Convex getShiftSales query.
  */
-export function useShiftSalesWithLocal() {
+export function useShiftSalesWithLocal(enabled = true) {
   const isTauri = "__TAURI__" in window;
   const { code: currentCode } = useAuth();
 
   // Convex query — only used on web
-  const shiftSales = useQuery(api.getShiftSales.getShiftSales);
-  const accessCodes = useQuery(api.accessCodes.listAccessCodes);
-  const enabledShifts = useQuery(api.shiftSettings.getEnabledShifts) as string[] | undefined;
+  const shiftSales = useQuery(
+    api.getShiftSales.getShiftSales,
+    enabled && currentCode ? { cashierCode: currentCode } : "skip"
+  );
+  const enabledShifts = useQuery(
+    api.shiftSettings.getEnabledShifts,
+    isTauri ? {} : "skip"
+  ) as string[] | undefined;
 
   const [localSales, setLocalSales] = useState<ShiftSalesData | null>(null);
   const [isLocalLoading, setIsLocalLoading] = useState(isTauri);
   const [unsyncedLocalCount, setUnsyncedLocalCount] = useState(0);
+  const [cachedAccessCodes, setCachedAccessCodes] = useState<AccessCodeLite[]>([]);
+
+  useEffect(() => {
+    if (!isTauri) return;
+
+    const loadCachedCodes = async () => {
+      try {
+        const sqlite = getSqliteDB();
+        if (!sqlite) return;
+        const rows = await sqlite.getCachedAccessCodes();
+        setCachedAccessCodes(rows);
+      } catch (error) {
+        console.error("Failed to load cached access codes:", error);
+      }
+    };
+
+    loadCachedCodes();
+  }, [isTauri]);
 
   const fetchLocalOrders = useCallback(async () => {
-    if (!isTauri) return;
+    if (!enabled || !isTauri) return;
 
     try {
       const allQueued = await orderQueue.getAllOrders();
@@ -71,11 +101,9 @@ export function useShiftSalesWithLocal() {
 
       // Build code-to-shift map from cached access codes
       const codeToShift: Record<string, "morning" | "afternoon" | "evening" | undefined> = {};
-      if (accessCodes) {
-        accessCodes.forEach((ac) => {
-          codeToShift[ac.code] = ac.shift;
-        });
-      }
+      cachedAccessCodes.forEach((ac) => {
+        codeToShift[ac.code] = ac.shift;
+      });
 
       // Group by shift — disabled shifts go to unassigned
       const isShiftEnabled = (s: string) => !enabledShifts || enabledShifts.includes(s);
@@ -133,13 +161,14 @@ export function useShiftSalesWithLocal() {
       console.error("Failed to fetch local orders for sales report:", error);
       setIsLocalLoading(false);
     }
-  }, [isTauri, currentCode, accessCodes, enabledShifts]);
+  }, [enabled, isTauri, currentCode, cachedAccessCodes, enabledShifts]);
 
   useEffect(() => {
+    if (!enabled) return;
     fetchLocalOrders();
     const interval = setInterval(fetchLocalOrders, 10000);
     return () => clearInterval(interval);
-  }, [fetchLocalOrders]);
+  }, [enabled, fetchLocalOrders]);
 
   // Tauri: local-only, no merge. Web: Convex-only, filtered to current cashier.
   if (isTauri) {
@@ -152,30 +181,9 @@ export function useShiftSalesWithLocal() {
     };
   }
 
-  // Filter Convex data to current cashier only
-  const filteredShiftSales = shiftSales && currentCode ? (() => {
-    const filterShift = (shift?: ShiftData): ShiftData => {
-      if (!shift) return { totalSales: 0, orderCount: 0, byAccessCode: {} };
-      const codeData = shift.byAccessCode[currentCode];
-      if (!codeData) return { totalSales: 0, orderCount: 0, byAccessCode: {} };
-      return {
-        totalSales: codeData.totalSales,
-        orderCount: codeData.orderCount,
-        byAccessCode: { [currentCode]: codeData },
-      };
-    };
-    return {
-      morning: filterShift(shiftSales.morning),
-      afternoon: filterShift(shiftSales.afternoon),
-      evening: filterShift(shiftSales.evening),
-      unassigned: filterShift(shiftSales.unassigned),
-      fullDay: filterShift(shiftSales.fullDay),
-    };
-  })() : null;
-
   return {
-    shiftSales: filteredShiftSales ?? null,
-    isLoading: !shiftSales,
+    shiftSales: shiftSales ?? null,
+    isLoading: enabled && shiftSales === undefined,
     hasLocalData: false,
     localOrderCount: 0,
     unsyncedCount: 0,

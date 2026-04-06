@@ -30,7 +30,11 @@ export function DashboardHeader({ onLogout, children }: DashboardHeaderProps) {
           </div>
           <div>
             <h1 className="font-display font-bold text-xl text-foreground">
-              {isAdmin ? userName || "Admin Dashboard" : userName ? `Cashier · ${userName}` : "Cashier Dashboard"}
+              {isAdmin
+                ? userName || "Admin Dashboard"
+                : userName
+                  ? `Cashier · ${userName}`
+                  : "Cashier Dashboard"}
             </h1>
             <p className="text-sm text-muted-foreground">
               Redeemers University · New Era Cafeteria

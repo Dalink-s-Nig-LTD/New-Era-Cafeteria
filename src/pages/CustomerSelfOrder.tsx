@@ -109,24 +109,118 @@ function CustomerKiosk() {
   const [exitError, setExitError] = useState("");
   const [validatingPin, setValidatingPin] = useState(false);
 
-  const menuItems = useQuery(api.menuItems.getAllMenuItems);
-  const categories = useQuery(api.menuItems.getCategories);
+  const isDesktop = typeof window !== "undefined" && "__TAURI__" in window;
+
+  const [cachedMenuItems, setCachedMenuItems] = useState<
+    KioskMenuItem[] | null
+  >(null);
+  const [cachedCategories, setCachedCategories] = useState<string[] | null>(
+    null,
+  );
+  const [cacheLoading, setCacheLoading] = useState(isDesktop);
+
+  const remoteMenuItems = useQuery(api.menuItems.getAllMenuItems, {});
+  const remoteCategories = useQuery(api.menuItems.getCategories, {});
+
+  useEffect(() => {
+    if (!isDesktop) return;
+
+    const loadCachedMenu = async () => {
+      try {
+        const sqliteDB = getSqliteDB();
+        if (!sqliteDB) {
+          setCacheLoading(false);
+          return;
+        }
+        const rows = await sqliteDB.getCachedMenuItems();
+        setCachedMenuItems(rows as KioskMenuItem[]);
+
+        const uniqueCategories = [
+          "All",
+          ...Array.from(new Set(rows.map((row) => row.category))).sort(),
+        ];
+        setCachedCategories(uniqueCategories);
+      } catch (error) {
+        console.error("Failed to load cached kiosk menu:", error);
+      } finally {
+        setCacheLoading(false);
+      }
+    };
+
+    loadCachedMenu();
+  }, [isDesktop]);
+
+  const hasCachedMenu = !!cachedMenuItems && cachedMenuItems.length > 0;
+  const menuItems = isDesktop
+    ? hasCachedMenu
+      ? cachedMenuItems
+      : remoteMenuItems || []
+    : remoteMenuItems;
+  const categories = isDesktop
+    ? hasCachedMenu
+      ? cachedCategories
+      : remoteCategories || ["All"]
+    : remoteCategories;
   const hasValidPrefix =
     barcodeInput.startsWith("STU-") || barcodeInput.startsWith("CUST-");
-  const customerLookup = useQuery(
+  const customerLookupFromServer = useQuery(
     api.customers.getCustomerByBarcode,
     hasValidPrefix ? { barcodeData: barcodeInput } : "skip",
   );
-  const createOrder = useMutation(api.orders.createOrder);
-  const deductFunds = useMutation(api.customerFunds.deductFunds);
+  const [cachedCustomerLookup, setCachedCustomerLookup] =
+    useState<CustomerRecord | null>(null);
+
+  useEffect(() => {
+    if (!isDesktop || !hasValidPrefix || !barcodeInput.trim()) {
+      setCachedCustomerLookup(null);
+      return;
+    }
+
+    const loadCachedCustomer = async () => {
+      try {
+        const sqliteDB = getSqliteDB();
+        if (!sqliteDB) return;
+        const cached = await sqliteDB.getCachedCustomerByBarcode(
+          barcodeInput.trim(),
+        );
+        if (!cached) {
+          setCachedCustomerLookup(null);
+          return;
+        }
+
+        setCachedCustomerLookup({
+          _id: cached._id as Id<"customers">,
+          customerId: cached.customerId,
+          firstName: cached.firstName,
+          lastName: cached.lastName,
+          department: cached.department,
+          classLevel: cached.classLevel,
+          photo: cached.photo,
+          barcodeData: cached.barcodeData,
+          balance: cached.balance,
+          isActive: cached.isActive,
+          expiryDate: cached.expiryDate,
+          createdAt: cached.createdAt,
+          updatedAt: cached.updatedAt,
+        });
+      } catch (error) {
+        console.error("Failed to load cached customer lookup:", error);
+      }
+    };
+
+    loadCachedCustomer();
+  }, [isDesktop, hasValidPrefix, barcodeInput]);
+
+  const customerLookup = customerLookupFromServer || cachedCustomerLookup;
+  const createOrderWithBalancePayment = useMutation(
+    api.orders.createOrderWithBalancePayment,
+  );
 
   // PIN validation query - only runs when exitPin is 4 chars
   const pinValidation = useQuery(
     api.accessCodes.validateCode,
     exitPin.length === 4 ? { code: exitPin } : "skip",
   );
-
-  const isDesktop = typeof window !== "undefined" && "__TAURI__" in window;
 
   useEffect(() => {
     if (step === "scan" && inputRef.current) {
@@ -312,7 +406,7 @@ function CustomerKiosk() {
     try {
       const orderId = `KIOSK_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
 
-      const orderResult = await createOrder({
+      const orderResult = await createOrderWithBalancePayment({
         items: cart.map((c) => ({
           menuItemId: c._id as Id<"menuItems">,
           name: c.name,
@@ -321,7 +415,6 @@ function CustomerKiosk() {
           category: c.category,
         })),
         total: cartTotal,
-        paymentMethod: "customer_balance" as const,
         status: "completed" as const,
         orderType: "regular" as const,
         cashierCode: "KIOSK",
@@ -329,17 +422,9 @@ function CustomerKiosk() {
         customerId: customer._id,
         clientOrderId: orderId,
         createdAt: Date.now(),
-      });
-
-      const itemsSummary = cart
-        .map((c) => (c.quantity > 1 ? `${c.name} x${c.quantity}` : c.name))
-        .join(", ");
-
-      const deductResult = await deductFunds({
-        customerId: customer._id,
-        amount: cartTotal,
-        description: `Kiosk order: ${itemsSummary}`,
-        orderId: orderResult._id,
+        description: `Kiosk order: ${cart
+          .map((c) => (c.quantity > 1 ? `${c.name} x${c.quantity}` : c.name))
+          .join(", ")}`,
       });
 
       // Save to SQLite locally
@@ -366,7 +451,7 @@ function CustomerKiosk() {
         console.error("SQLite save failed (non-blocking):", sqlErr);
       }
 
-      setConfirmedBalance(deductResult.balanceAfter);
+      setConfirmedBalance(orderResult.balanceAfter);
       const order = buildOrder(orderId);
       setCompletedOrder(order);
       setStep("success");
@@ -488,7 +573,10 @@ function CustomerKiosk() {
     selectedCategory === "All"
       ? typeFilteredItems
       : typeFilteredItems.filter((i) => i.category === selectedCategory);
-  const isLoading = menuItems === undefined || categories === undefined;
+  const isLoading = isDesktop
+    ? !hasCachedMenu &&
+      (remoteMenuItems === undefined || remoteCategories === undefined)
+    : menuItems === undefined || categories === undefined;
 
   return (
     <div className="min-h-screen bg-white flex flex-col">

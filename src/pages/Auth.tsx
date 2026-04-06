@@ -9,8 +9,9 @@ import { Label } from "@/components/ui/label";
 import { Eye, EyeOff, Home } from "lucide-react";
 import ruLogo from "@/assets/ru-logo.jpg";
 import logo from "@/assets/logo.png";
+import { ForgotPassword } from "@/components/auth/ForgotPassword";
 
-type AuthMode = "signin" | "signup";
+type AuthMode = "signin" | "signup" | "forgot-password";
 
 export function Auth() {
   const [mode, setMode] = useState<AuthMode>("signin");
@@ -170,151 +171,159 @@ export function Auth() {
         {/* Left Side - Form */}
         <div className="flex-1 p-6 sm:p-10 lg:p-14 flex flex-col justify-center bg-white">
           <div className="max-w-sm mx-auto w-full lg:mx-0">
-            <h1 className="text-2xl sm:text-3xl font-display font-bold text-foreground mb-8">
-              {mode === "signin" ? "Login" : "Sign Up"}
-            </h1>
+            {mode === "forgot-password" ? (
+              <ForgotPassword onBack={() => setMode("signin")} />
+            ) : (
+              <>
+                <h1 className="text-2xl sm:text-3xl font-display font-bold text-foreground mb-8">
+                  {mode === "signin" ? "Login" : "Sign Up"}
+                </h1>
 
-            <form onSubmit={handleSubmit} className="space-y-5">
-              {mode === "signup" && (
-                <div className="space-y-2">
-                  <Label
-                    htmlFor="name"
-                    className="text-sm text-muted-foreground font-normal"
-                  >
-                    Full Name
-                  </Label>
-                  <Input
-                    id="name"
-                    type="text"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    className="h-12 bg-[#f5f5f7] border-0 rounded-lg focus-visible:ring-1 focus-visible:ring-primary"
-                    required
-                  />
-                </div>
-              )}
-
-              <div className="space-y-2">
-                <Label
-                  htmlFor="email"
-                  className="text-sm text-muted-foreground font-normal"
-                >
-                  Username or email
-                </Label>
-                <Input
-                  id="email"
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="h-12 bg-[#f5f5f7] border-0 rounded-lg focus-visible:ring-1 focus-visible:ring-primary"
-                  required
-                />
-              </div>
-
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <Label
-                    htmlFor="password"
-                    className="text-sm text-muted-foreground font-normal"
-                  >
-                    Password
-                  </Label>
-                  {mode === "signin" && (
-                    <button
-                      type="button"
-                      className="text-sm text-primary hover:underline"
-                    >
-                      Forgot password ?
-                    </button>
+                <form onSubmit={handleSubmit} className="space-y-5">
+                  {mode === "signup" && (
+                    <div className="space-y-2">
+                      <Label
+                        htmlFor="name"
+                        className="text-sm text-muted-foreground font-normal"
+                      >
+                        Full Name
+                      </Label>
+                      <Input
+                        id="name"
+                        type="text"
+                        value={name}
+                        onChange={(e) => setName(e.target.value)}
+                        className="h-12 bg-[#f5f5f7] border-0 rounded-lg focus-visible:ring-1 focus-visible:ring-primary"
+                        required
+                      />
+                    </div>
                   )}
-                </div>
-                <div className="relative">
-                  <Input
-                    id="password"
-                    type={showPassword ? "text" : "password"}
-                    value={password}
-                    onChange={(e) => {
-                      setPassword(e.target.value);
-                      if (mode === "signup")
-                        checkPasswordStrength(e.target.value);
-                    }}
-                    className="h-12 bg-[#f5f5f7] border-0 rounded-lg pr-12 focus-visible:ring-1 focus-visible:ring-primary"
-                    required
-                    minLength={8}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-4 top-1/2 transform -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                  >
-                    {showPassword ? (
-                      <EyeOff className="h-5 w-5" />
-                    ) : (
-                      <Eye className="h-5 w-5" />
+
+                  <div className="space-y-2">
+                    <Label
+                      htmlFor="email"
+                      className="text-sm text-muted-foreground font-normal"
+                    >
+                      Username or email
+                    </Label>
+                    <Input
+                      id="email"
+                      type="email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      className="h-12 bg-[#f5f5f7] border-0 rounded-lg focus-visible:ring-1 focus-visible:ring-primary"
+                      required
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <Label
+                        htmlFor="password"
+                        className="text-sm text-muted-foreground font-normal"
+                      >
+                        Password
+                      </Label>
+                      {mode === "signin" && (
+                        <button
+                          type="button"
+                          onClick={() => setMode("forgot-password")}
+                          className="text-sm text-primary hover:underline"
+                        >
+                          Forgot password ?
+                        </button>
+                      )}
+                    </div>
+                    <div className="relative">
+                      <Input
+                        id="password"
+                        type={showPassword ? "text" : "password"}
+                        value={password}
+                        onChange={(e) => {
+                          setPassword(e.target.value);
+                          if (mode === "signup")
+                            checkPasswordStrength(e.target.value);
+                        }}
+                        className="h-12 bg-[#f5f5f7] border-0 rounded-lg pr-12 focus-visible:ring-1 focus-visible:ring-primary"
+                        required
+                        minLength={8}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        className="absolute right-4 top-1/2 transform -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                      >
+                        {showPassword ? (
+                          <EyeOff className="h-5 w-5" />
+                        ) : (
+                          <Eye className="h-5 w-5" />
+                        )}
+                      </button>
+                    </div>
+                    {mode === "signup" && passwordStrength && (
+                      <p
+                        className={`text-xs ${
+                          passwordStrength === "Strong"
+                            ? "text-green-600"
+                            : passwordStrength === "Good"
+                              ? "text-blue-600"
+                              : passwordStrength === "Fair"
+                                ? "text-yellow-600"
+                                : "text-red-600"
+                        }`}
+                      >
+                        Password strength: {passwordStrength}
+                      </p>
                     )}
-                  </button>
-                </div>
-                {mode === "signup" && passwordStrength && (
-                  <p
-                    className={`text-xs ${
-                      passwordStrength === "Strong"
-                        ? "text-green-600"
-                        : passwordStrength === "Good"
-                          ? "text-blue-600"
-                          : passwordStrength === "Fair"
-                            ? "text-yellow-600"
-                            : "text-red-600"
-                    }`}
+                    {mode === "signup" && (
+                      <p className="text-xs text-muted-foreground">
+                        Must be 8+ characters with uppercase, lowercase, and
+                        number
+                      </p>
+                    )}
+                  </div>
+
+                  {mode === "signup" && (
+                    <div className="space-y-2">
+                      <Label
+                        htmlFor="confirmPassword"
+                        className="text-sm text-muted-foreground font-normal"
+                      >
+                        Confirm Password
+                      </Label>
+                      <Input
+                        id="confirmPassword"
+                        type={showPassword ? "text" : "password"}
+                        value={confirmPassword}
+                        onChange={(e) => setConfirmPassword(e.target.value)}
+                        className="h-12 bg-[#f5f5f7] border-0 rounded-lg focus-visible:ring-1 focus-visible:ring-primary"
+                        required
+                      />
+                    </div>
+                  )}
+
+                  {error && (
+                    <div className="p-3 rounded-lg bg-destructive/10 text-destructive text-sm">
+                      {error}
+                    </div>
+                  )}
+
+                  <Button
+                    type="submit"
+                    className="w-full h-12 text-base rounded-xl font-medium"
+                    disabled={loading}
                   >
-                    Password strength: {passwordStrength}
-                  </p>
-                )}
-                {mode === "signup" && (
-                  <p className="text-xs text-muted-foreground">
-                    Must be 8+ characters with uppercase, lowercase, and number
-                  </p>
-                )}
-              </div>
-
-              {mode === "signup" && (
-                <div className="space-y-2">
-                  <Label
-                    htmlFor="confirmPassword"
-                    className="text-sm text-muted-foreground font-normal"
-                  >
-                    Confirm Password
-                  </Label>
-                  <Input
-                    id="confirmPassword"
-                    type={showPassword ? "text" : "password"}
-                    value={confirmPassword}
-                    onChange={(e) => setConfirmPassword(e.target.value)}
-                    className="h-12 bg-[#f5f5f7] border-0 rounded-lg focus-visible:ring-1 focus-visible:ring-primary"
-                    required
-                  />
-                </div>
-              )}
-
-              {error && (
-                <div className="p-3 rounded-lg bg-destructive/10 text-destructive text-sm">
-                  {error}
-                </div>
-              )}
-
-              <Button
-                type="submit"
-                className="w-full h-12 text-base rounded-xl font-medium"
-                disabled={loading}
-              >
-                {loading ? (
-                  <span className="animate-spin h-5 w-5 border-2 border-current border-t-transparent rounded-full" />
-                ) : mode === "signin" ? (
-                  "Login"
-                ) : (
-                  "Sign Up"
-                )}
-              </Button>
-            </form>
+                    {loading ? (
+                      <span className="animate-spin h-5 w-5 border-2 border-current border-t-transparent rounded-full" />
+                    ) : mode === "signin" ? (
+                      "Login"
+                    ) : (
+                      "Sign Up"
+                    )}
+                  </Button>
+                </form>
+              </>
+            )}
           </div>
         </div>
 

@@ -38,9 +38,7 @@ export function Cart() {
     downloadDailySalesPDF,
     isProcessingOrder,
   } = useCart();
-  const enabledShifts = useQuery(
-    (api as any).shiftSettings.getEnabledShifts,
-  ) as string[] | undefined;
+  const enabledShifts = useQuery(api.shiftSettings.getEnabledShifts);
   const [showReceipt, setShowReceipt] = useState(false);
   const [lastOrder, setLastOrder] = useState<Order | null>(null);
   const [showWalletPay, setShowWalletPay] = useState(false);
@@ -103,7 +101,7 @@ export function Cart() {
   return (
     <>
       <Card
-        className="h-full flex flex-col border-border shadow-card bg-white"
+        className="h-full min-h-0 flex flex-col border-border shadow-card bg-white"
         style={{ minWidth: 340, maxWidth: 400, margin: "0 auto" }}
       >
         <CardHeader className="pb-3">
@@ -118,7 +116,7 @@ export function Cart() {
           </CardTitle>
         </CardHeader>
 
-        <CardContent className="flex-1 flex flex-col p-4 pt-0">
+        <CardContent className="flex-1 flex flex-col p-4 pt-0 min-h-0 overflow-hidden">
           {/* Daily Reports Section */}
           <div className="mb-4">
             <div className="text-xs font-semibold mb-2 text-muted-foreground">
@@ -212,7 +210,7 @@ export function Cart() {
             </div>
           ) : (
             <>
-              <ScrollArea className="flex-1 -mx-4 px-4">
+              <ScrollArea className="flex-1 min-h-0 max-h-[calc(100vh-28rem)] -mx-4 px-4">
                 <div className="space-y-3">
                   {items.map((item) => (
                     <div

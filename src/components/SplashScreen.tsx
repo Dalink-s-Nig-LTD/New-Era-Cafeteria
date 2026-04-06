@@ -5,7 +5,7 @@ interface SplashScreenProps {
   onComplete: () => void;
 }
 
-const DURATION = 30000; // 30 seconds
+const DURATION = 3000; // 3 seconds
 const INTERVAL = 100; // update every 100ms
 
 const SplashScreen = ({ onComplete }: SplashScreenProps) => {
@@ -31,7 +31,11 @@ const SplashScreen = ({ onComplete }: SplashScreenProps) => {
     <div
       className={`fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-white transition-opacity duration-700 ${fading ? "opacity-0" : "opacity-100"}`}
     >
-      <img src={logo} alt="New Era Cafeteria" className="w-[200px] h-[200px] object-contain mb-8 animate-pulse-slow" />
+      <img
+        src={logo}
+        alt="New Era Cafeteria"
+        className="w-[200px] h-[200px] object-contain mb-8 animate-pulse-slow"
+      />
       <div className="w-64 h-3 bg-gray-200 rounded-full overflow-hidden">
         <div
           className="h-full bg-yellow-500 rounded-full transition-all duration-100 ease-linear"

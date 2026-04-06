@@ -70,11 +70,37 @@ export const getFilteredLogs = query({
   handler: async (ctx, args) => {
     const limit = args.limit || 100;
     const offset = args.offset || 0;
-    
-    const query = ctx.db.query("activityLogs");
-    
-    // Apply filters
-    let logs = await query.order("desc").collect();
+
+    // Fast path: no filters, paginate directly from index instead of full collect.
+    if (
+      !args.userId &&
+      !args.accessCode &&
+      !args.role &&
+      !args.action &&
+      !args.status &&
+      !args.startDate &&
+      !args.endDate
+    ) {
+      const page = await ctx.db
+        .query("activityLogs")
+        .withIndex("by_createdAt")
+        .order("desc")
+        .take(offset + limit + 1);
+
+      return {
+        logs: page.slice(offset, offset + limit),
+        total: page.length > offset + limit ? offset + limit + 1 : page.length,
+        hasMore: page.length > offset + limit,
+      };
+    }
+
+    // Filtered path: bounded scan window to avoid unbounded payload growth.
+    const scanWindow = Math.min(Math.max(offset + limit + 400, 1000), 5000);
+    let logs = await ctx.db
+      .query("activityLogs")
+      .withIndex("by_createdAt")
+      .order("desc")
+      .take(scanWindow);
     
     if (args.userId) {
       logs = logs.filter(log => log.userId === args.userId);
@@ -157,7 +183,15 @@ export const getActivityStats = query({
     endDate: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    let logs = await ctx.db.query("activityLogs").collect();
+    // If no dates are provided, default to recent window to avoid scanning all history.
+    const defaultStart = Date.now() - 30 * 24 * 60 * 60 * 1000;
+    const start = args.startDate ?? defaultStart;
+    const end = args.endDate ?? Date.now();
+
+    let logs = await ctx.db
+      .query("activityLogs")
+      .withIndex("by_createdAt", (q) => q.gte("createdAt", start).lte("createdAt", end))
+      .collect();
     
     // Filter by date range if provided
     if (args.startDate) {

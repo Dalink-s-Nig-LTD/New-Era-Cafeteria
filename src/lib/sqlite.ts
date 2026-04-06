@@ -36,6 +36,47 @@ interface OrderQueueRow {
   client_order_id?: string | null;
 }
 
+interface CachedMenuItemRow {
+  _id: string;
+  name: string;
+  category: string;
+  price: number;
+  image?: string | null;
+  available: number;
+  cached_at: number;
+}
+
+interface CachedAccessCodeRow {
+  code: string;
+  shift?: "morning" | "afternoon" | "evening" | null;
+  is_active: number;
+  cached_at: number;
+}
+
+interface CachedCustomerRow {
+  _id: string;
+  customer_id: string;
+  barcode: string;
+  first_name: string;
+  last_name: string;
+  department: string;
+  class_level: string;
+  photo?: string | null;
+  balance: number;
+  is_active: number;
+  expiry_date?: number | null;
+  created_at: number;
+  updated_at: number;
+  cached_at: number;
+}
+
+interface CachedOrderRow {
+  _id: string;
+  order_data: string;
+  created_at: number;
+  cached_at: number;
+}
+
 class SQLiteOrderDB {
   private db: any = null;
   private initPromise: Promise<void> | null = null;
@@ -106,6 +147,51 @@ class SQLiteOrderDB {
           synced INTEGER NOT NULL DEFAULT 1
         )`);
         console.log("✅ customer_orders table initialized");
+
+        await this.db.execute(`CREATE TABLE IF NOT EXISTS menu_items_cache (
+          _id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          category TEXT NOT NULL,
+          price REAL NOT NULL,
+          image TEXT,
+          available INTEGER NOT NULL DEFAULT 1,
+          cached_at INTEGER NOT NULL
+        )`);
+        console.log("✅ menu_items_cache table initialized");
+
+        await this.db.execute(`CREATE TABLE IF NOT EXISTS access_codes_cache (
+          code TEXT PRIMARY KEY,
+          shift TEXT,
+          is_active INTEGER NOT NULL DEFAULT 1,
+          cached_at INTEGER NOT NULL
+        )`);
+        console.log("✅ access_codes_cache table initialized");
+
+        await this.db.execute(`CREATE TABLE IF NOT EXISTS customers_cache (
+          _id TEXT PRIMARY KEY,
+          customer_id TEXT NOT NULL,
+          barcode TEXT UNIQUE NOT NULL,
+          first_name TEXT NOT NULL,
+          last_name TEXT NOT NULL,
+          department TEXT NOT NULL,
+          class_level TEXT NOT NULL,
+          photo TEXT,
+          balance REAL NOT NULL,
+          is_active INTEGER NOT NULL DEFAULT 1,
+          expiry_date INTEGER,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL,
+          cached_at INTEGER NOT NULL
+        )`);
+        console.log("✅ customers_cache table initialized");
+
+        await this.db.execute(`CREATE TABLE IF NOT EXISTS orders_cache (
+          _id TEXT PRIMARY KEY,
+          order_data TEXT NOT NULL,
+          created_at INTEGER NOT NULL,
+          cached_at INTEGER NOT NULL
+        )`);
+        console.log("✅ orders_cache table initialized");
       } catch (error) {
         console.error("❌ Failed to initialize SQLite:", error);
         this.initPromise = null;
@@ -347,6 +433,315 @@ class SQLiteOrderDB {
       paymentStatus: r.payment_status,
       createdAt: r.created_at,
     }));
+  }
+
+  async cacheMenuItems(
+    items: Array<{
+      _id: string;
+      name: string;
+      category: string;
+      price: number;
+      image?: string;
+      available: boolean;
+    }>,
+  ): Promise<void> {
+    const db = await this.ensureDB();
+    const now = Date.now();
+
+    await db.execute(`DELETE FROM menu_items_cache`);
+    for (const item of items) {
+      await db.execute(
+        `INSERT OR REPLACE INTO menu_items_cache (_id, name, category, price, image, available, cached_at) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [
+          item._id,
+          item.name,
+          item.category,
+          item.price,
+          item.image || null,
+          item.available ? 1 : 0,
+          now,
+        ],
+      );
+    }
+  }
+
+  async getCachedMenuItems(): Promise<
+    Array<{
+      _id: string;
+      name: string;
+      category: string;
+      price: number;
+      image?: string;
+      available: boolean;
+    }>
+  > {
+    const db = await this.ensureDB();
+    const rows: CachedMenuItemRow[] = await db.select(
+      `SELECT _id, name, category, price, image, available, cached_at FROM menu_items_cache ORDER BY name ASC`,
+    );
+    return rows.map((row) => ({
+      _id: row._id,
+      name: row.name,
+      category: row.category,
+      price: row.price,
+      image: row.image || undefined,
+      available: !!row.available,
+    }));
+  }
+
+  async cacheAccessCodes(
+    codes: Array<{
+      code: string;
+      shift?: "morning" | "afternoon" | "evening";
+      isActive: boolean;
+    }>,
+  ): Promise<void> {
+    const db = await this.ensureDB();
+    const now = Date.now();
+
+    await db.execute(`DELETE FROM access_codes_cache`);
+    for (const code of codes) {
+      await db.execute(
+        `INSERT OR REPLACE INTO access_codes_cache (code, shift, is_active, cached_at) VALUES ($1, $2, $3, $4)`,
+        [code.code, code.shift || null, code.isActive ? 1 : 0, now],
+      );
+    }
+  }
+
+  async getCachedAccessCodes(): Promise<
+    Array<{
+      code: string;
+      shift?: "morning" | "afternoon" | "evening";
+      isActive: boolean;
+    }>
+  > {
+    const db = await this.ensureDB();
+    const rows: CachedAccessCodeRow[] = await db.select(
+      `SELECT code, shift, is_active, cached_at FROM access_codes_cache ORDER BY code ASC`,
+    );
+    return rows.map((row) => ({
+      code: row.code,
+      shift: row.shift || undefined,
+      isActive: !!row.is_active,
+    }));
+  }
+
+  async cacheCustomers(
+    customers: Array<{
+      _id: string;
+      customerId: string;
+      barcodeData: string;
+      firstName: string;
+      lastName: string;
+      department: string;
+      classLevel: string;
+      photo?: string;
+      balance: number;
+      isActive: boolean;
+      expiryDate?: number;
+      createdAt: number;
+      updatedAt: number;
+    }>,
+  ): Promise<void> {
+    const db = await this.ensureDB();
+    const now = Date.now();
+
+    await db.execute(`DELETE FROM customers_cache`);
+    for (const customer of customers) {
+      await db.execute(
+        `INSERT OR REPLACE INTO customers_cache (_id, customer_id, barcode, first_name, last_name, department, class_level, photo, balance, is_active, expiry_date, created_at, updated_at, cached_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+        [
+          customer._id,
+          customer.customerId,
+          customer.barcodeData,
+          customer.firstName,
+          customer.lastName,
+          customer.department,
+          customer.classLevel,
+          customer.photo || null,
+          customer.balance,
+          customer.isActive ? 1 : 0,
+          customer.expiryDate || null,
+          customer.createdAt,
+          customer.updatedAt,
+          now,
+        ],
+      );
+    }
+  }
+
+  async getCachedCustomers(): Promise<
+    Array<{
+      _id: string;
+      customerId: string;
+      barcodeData: string;
+      firstName: string;
+      lastName: string;
+      department: string;
+      classLevel: string;
+      photo?: string;
+      balance: number;
+      isActive: boolean;
+      expiryDate?: number;
+      createdAt: number;
+      updatedAt: number;
+    }>
+  > {
+    const db = await this.ensureDB();
+    const rows: CachedCustomerRow[] = await db.select(
+      `SELECT _id, customer_id, barcode, first_name, last_name, department, class_level, photo, balance, is_active, expiry_date, created_at, updated_at, cached_at FROM customers_cache ORDER BY first_name ASC, last_name ASC`,
+    );
+
+    return rows.map((row) => ({
+      _id: row._id,
+      customerId: row.customer_id,
+      barcodeData: row.barcode,
+      firstName: row.first_name,
+      lastName: row.last_name,
+      department: row.department,
+      classLevel: row.class_level,
+      photo: row.photo || undefined,
+      balance: row.balance,
+      isActive: !!row.is_active,
+      expiryDate: row.expiry_date || undefined,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    }));
+  }
+
+  async getCachedCustomerByBarcode(barcodeData: string): Promise<{
+    _id: string;
+    customerId: string;
+    barcodeData: string;
+    firstName: string;
+    lastName: string;
+    department: string;
+    classLevel: string;
+    photo?: string;
+    balance: number;
+    isActive: boolean;
+    expiryDate?: number;
+    createdAt: number;
+    updatedAt: number;
+  } | null> {
+    const db = await this.ensureDB();
+    const rows: CachedCustomerRow[] = await db.select(
+      `SELECT _id, customer_id, barcode, first_name, last_name, department, class_level, photo, balance, is_active, expiry_date, created_at, updated_at, cached_at FROM customers_cache WHERE barcode = $1 LIMIT 1`,
+      [barcodeData],
+    );
+    const row = rows[0];
+    if (!row) return null;
+
+    return {
+      _id: row._id,
+      customerId: row.customer_id,
+      barcodeData: row.barcode,
+      firstName: row.first_name,
+      lastName: row.last_name,
+      department: row.department,
+      classLevel: row.class_level,
+      photo: row.photo || undefined,
+      balance: row.balance,
+      isActive: !!row.is_active,
+      expiryDate: row.expiry_date || undefined,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  }
+
+  async cacheOrders(
+    orders: Array<{
+      _id: string;
+      items: Array<{
+        menuItemId?: string;
+        name: string;
+        price: number;
+        quantity: number;
+        category?: string;
+        isCustom?: boolean;
+      }>;
+      total: number;
+      paymentMethod: string;
+      status: string;
+      orderType?: string;
+      cashierCode: string;
+      cashierName?: string;
+      clientOrderId?: string;
+      createdAt: number;
+    }>,
+  ): Promise<void> {
+    const db = await this.ensureDB();
+    const now = Date.now();
+
+    await db.execute(`DELETE FROM orders_cache`);
+    for (const order of orders) {
+      await db.execute(
+        `INSERT OR REPLACE INTO orders_cache (_id, order_data, created_at, cached_at) VALUES ($1, $2, $3, $4)`,
+        [order._id, JSON.stringify(order), order.createdAt, now],
+      );
+    }
+  }
+
+  async getCachedOrders(): Promise<
+    Array<{
+      _id: string;
+      items: Array<{
+        menuItemId?: string;
+        name: string;
+        price: number;
+        quantity: number;
+        category?: string;
+        isCustom?: boolean;
+      }>;
+      total: number;
+      paymentMethod: string;
+      status: string;
+      orderType?: string;
+      cashierCode: string;
+      cashierName?: string;
+      clientOrderId?: string;
+      createdAt: number;
+    }>
+  > {
+    const db = await this.ensureDB();
+    const rows: CachedOrderRow[] = await db.select(
+      `SELECT _id, order_data, created_at, cached_at FROM orders_cache ORDER BY created_at DESC`,
+    );
+
+    return rows.map((row) => JSON.parse(row.order_data));
+  }
+
+  async getCachedOrdersByRange(
+    startDate: number,
+    endDate: number,
+  ): Promise<
+    Array<{
+      _id: string;
+      items: Array<{
+        menuItemId?: string;
+        name: string;
+        price: number;
+        quantity: number;
+        category?: string;
+        isCustom?: boolean;
+      }>;
+      total: number;
+      paymentMethod: string;
+      status: string;
+      orderType?: string;
+      cashierCode: string;
+      cashierName?: string;
+      clientOrderId?: string;
+      createdAt: number;
+    }>
+  > {
+    const db = await this.ensureDB();
+    const rows: CachedOrderRow[] = await db.select(
+      `SELECT _id, order_data, created_at, cached_at FROM orders_cache WHERE created_at >= $1 AND created_at < $2 ORDER BY created_at DESC`,
+      [startDate, endDate],
+    );
+
+    return rows.map((row) => JSON.parse(row.order_data));
   }
 
   private rowToQueuedOrder(row: OrderQueueRow): QueuedOrder {

@@ -93,6 +93,98 @@ export const createOrder = mutation({
   },
 });
 
+// Atomically create order and deduct customer balance.
+// This prevents the split-write inconsistency between order creation and wallet deduction.
+export const createOrderWithBalancePayment = mutation({
+  args: {
+    items: v.array(
+      v.object({
+        menuItemId: v.optional(v.id("menuItems")),
+        name: v.string(),
+        price: v.number(),
+        quantity: v.number(),
+        category: v.optional(v.string()),
+        isCustom: v.optional(v.boolean()),
+      })
+    ),
+    total: v.number(),
+    customerId: v.id("customers"),
+    status: v.union(v.literal("pending"), v.literal("completed"), v.literal("cancelled")),
+    orderType: v.optional(v.union(v.literal("regular"), v.literal("special"))),
+    cashierCode: v.string(),
+    cashierName: v.optional(v.string()),
+    clientOrderId: v.string(),
+    createdAt: v.number(),
+    description: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const preciseCreatedAt = args.createdAt || Date.now();
+
+    const existingByClientId = await ctx.db
+      .query("orders")
+      .withIndex("by_clientOrderId", (q) => q.eq("clientOrderId", args.clientOrderId))
+      .first();
+
+    if (existingByClientId) {
+      const customer = await ctx.db.get(args.customerId);
+      return {
+        _id: existingByClientId._id,
+        isDuplicate: true,
+        balanceAfter: customer?.balance ?? 0,
+      };
+    }
+
+    const customer = await ctx.db.get(args.customerId);
+    if (!customer) throw new Error("Customer not found.");
+    if (!customer.isActive) throw new Error("Customer account is inactive.");
+    if (args.total <= 0) throw new Error("Amount must be positive.");
+    if (customer.balance < args.total) throw new Error("Insufficient balance.");
+
+    const orderId = await ctx.db.insert("orders", {
+      items: args.items,
+      total: args.total,
+      paymentMethod: "customer_balance",
+      status: args.status,
+      orderType: args.orderType || "regular",
+      cashierCode: args.cashierCode,
+      cashierName: args.cashierName,
+      clientOrderId: args.clientOrderId,
+      customerId: args.customerId,
+      createdAt: preciseCreatedAt,
+    });
+
+    const balanceBefore = customer.balance;
+    const balanceAfter = balanceBefore - args.total;
+
+    await ctx.db.patch(args.customerId, {
+      balance: balanceAfter,
+      updatedAt: Date.now(),
+    });
+
+    await ctx.db.insert("customerTransactions", {
+      customerId: args.customerId,
+      type: "debit",
+      amount: args.total,
+      balanceBefore,
+      balanceAfter,
+      description: args.description,
+      orderId,
+      createdAt: Date.now(),
+    });
+
+    await ctx.db.insert("activityLogs", {
+      accessCode: args.cashierCode,
+      role: "cashier",
+      action: "create_order",
+      details: `Order + wallet debit completed - Total: ₦${args.total}, Items: ${args.items.length}`,
+      status: "success",
+      createdAt: Date.now(),
+    });
+
+    return { _id: orderId, isDuplicate: false, balanceAfter };
+  },
+});
+
 // Get recent orders
 export const getRecentOrders = query({
   args: {
@@ -189,37 +281,48 @@ export const getOrdersStats = query({
 // Get weekly sales data for chart
 export const getWeeklySales = query({
   handler: async (ctx) => {
-    const now = Date.now();
-    const oneWeekAgo = now - 7 * 24 * 60 * 60 * 1000;
-    
+    const now = new Date();
+    const day = now.getDay();
+    const mondayOffset = day === 0 ? -6 : 1 - day;
+    const weekStart = new Date(now);
+    weekStart.setHours(0, 0, 0, 0);
+    weekStart.setDate(now.getDate() + mondayOffset);
+    const weekEnd = new Date(weekStart);
+    weekEnd.setDate(weekStart.getDate() + 7);
+
+    const startMs = weekStart.getTime();
+    const endMs = weekEnd.getTime();
+
     const ordersRaw = await ctx.db
       .query("orders")
-      .filter((q) => q.gte(q.field("createdAt"), oneWeekAgo))
+      .withIndex("by_createdAt", (q) =>
+        q.gte("createdAt", startMs).lt("createdAt", endMs),
+      )
       .collect();
-    const orders = ordersRaw.filter(order => order.orderType !== "special");
-    
-    const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-    const salesByDay: Record<string, { revenue: number; orders: number }> = {};
-    
-    for (let i = 0; i < 7; i++) {
-      const date = new Date(now - (6 - i) * 24 * 60 * 60 * 1000);
-      const dayName = dayNames[date.getDay()];
-      salesByDay[dayName] = { revenue: 0, orders: 0 };
-    }
-    
-    orders.forEach(order => {
-      const date = new Date(order.createdAt);
-      const dayName = dayNames[date.getDay()];
-      if (salesByDay[dayName]) {
-        salesByDay[dayName].revenue += order.total;
-        salesByDay[dayName].orders += 1;
-      }
+    const orders = ordersRaw.filter((order) => order.orderType !== "special");
+
+    const labels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+    const salesByDay: Record<string, { revenue: number; orders: number }> = {
+      Mon: { revenue: 0, orders: 0 },
+      Tue: { revenue: 0, orders: 0 },
+      Wed: { revenue: 0, orders: 0 },
+      Thu: { revenue: 0, orders: 0 },
+      Fri: { revenue: 0, orders: 0 },
+      Sat: { revenue: 0, orders: 0 },
+      Sun: { revenue: 0, orders: 0 },
+    };
+
+    orders.forEach((order) => {
+      const d = new Date(order.createdAt).getDay();
+      const label = labels[d === 0 ? 6 : d - 1];
+      salesByDay[label].revenue += order.total;
+      salesByDay[label].orders += 1;
     });
-    
-    return Object.entries(salesByDay).map(([date, data]) => ({
+
+    return labels.map((date) => ({
       date,
-      revenue: data.revenue,
-      orders: data.orders,
+      revenue: salesByDay[date].revenue,
+      orders: salesByDay[date].orders,
     }));
   },
 });
@@ -227,11 +330,20 @@ export const getWeeklySales = query({
 // Get category sales data
 export const getCategorySales = query({
   handler: async (ctx) => {
-    const oneWeekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
-    
+    const now = new Date();
+    const day = now.getDay();
+    const mondayOffset = day === 0 ? -6 : 1 - day;
+    const weekStart = new Date(now);
+    weekStart.setHours(0, 0, 0, 0);
+    weekStart.setDate(now.getDate() + mondayOffset);
+    const weekEnd = new Date(weekStart);
+    weekEnd.setDate(weekStart.getDate() + 7);
+
     const ordersRaw = await ctx.db
       .query("orders")
-      .filter((q) => q.gte(q.field("createdAt"), oneWeekAgo))
+      .withIndex("by_createdAt", (q) =>
+        q.gte("createdAt", weekStart.getTime()).lt("createdAt", weekEnd.getTime()),
+      )
       .collect();
     const orders = ordersRaw.filter(order => order.orderType !== "special");
     
