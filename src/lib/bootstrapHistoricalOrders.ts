@@ -44,11 +44,20 @@ export async function bootstrapHistoricalOrders(
       Number.isFinite(lastSyncAt) &&
       Date.now() - lastSyncAt < HIST_CACHE_TTL_MS;
 
+    // If cache is fresh and not empty, skip bootstrap
     if (existingOrders.length > 0 && isFresh) {
       console.log(
         `[Bootstrap] Historical cache still fresh (${existingOrders.length} orders), skipping bootstrap`,
       );
       return existingOrders.length;
+    }
+
+    // If cache is empty (new PC / fresh install), always fetch from Convex
+    const skipBootstrap = existingOrders.length > 0 && isFresh;
+    if (skipBootstrap) {
+      console.log("[Bootstrap] Stale cache detected, refreshing from Convex...");
+    } else if (existingOrders.length === 0) {
+      console.log("[Bootstrap] Empty cache detected, fetching from Convex (new PC or fresh install)...");
     }
 
     const historicalOrders = (await convexClient.query(api.orders.getAllOrders, {

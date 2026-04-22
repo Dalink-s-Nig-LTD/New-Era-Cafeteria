@@ -25,7 +25,7 @@ export const checkBetweenShiftOrders = query({
       const hours = date.getHours();
       const minutes = date.getMinutes();
       const timeInMinutes = hours * 60 + minutes;
-      return timeInMinutes >= 870 && timeInMinutes < 1320; // From 2:30 PM
+      return timeInMinutes >= 870 && timeInMinutes < 1440; // From 2:30 PM - 11:59 PM
     });
     
     const calcTotals = (orders) => {

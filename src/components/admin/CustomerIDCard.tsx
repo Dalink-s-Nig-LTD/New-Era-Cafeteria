@@ -21,7 +21,7 @@ import {
 import jsPDF from "jspdf";
 import { toast } from "sonner";
 import { useAction } from "convex/react";
-import { api } from "@/lib/convexApi";
+import { api } from "../../../convex/_generated/api";
 
 // Card color palette — light gold theme
 const FRONT_BG = "#D4A843"; // warm light gold (front background)
@@ -74,82 +74,92 @@ export function CustomerIDCard({ student }: CustomerIDCardProps) {
     iframe.style.cssText =
       "position:fixed;left:-9999px;top:-9999px;width:210mm;height:297mm;border:none;";
     document.body.appendChild(iframe);
-    const doc = iframe.contentDocument || iframe.contentWindow?.document;
-    if (!doc) {
+
+    if (!iframe.contentWindow) {
       document.body.removeChild(iframe);
       return;
     }
 
-    doc.open();
-    doc.write(`<html><head><title>ID Card</title><style>
-      @page { size: 85.6mm 53.98mm; margin: 0; }
-      * { margin:0; padding:0; box-sizing:border-box; }
-      html, body { width:85.6mm; font-family:Georgia,serif; background:#fff; }
-      .page { width:85.6mm; height:53.98mm; page-break-after:always; overflow:hidden; display:block; }
-      /* FRONT */
-      .front { background:${FRONT_BG}; display:flex; flex-direction:column; align-items:center; justify-content:center; position:relative; }
-      .front-watermark { position:absolute; top:50%; left:50%; transform:translate(-50%,-60%); font-size:11mm; font-weight:bold; color:rgba(44,24,0,0.06); font-family:Georgia,serif; line-height:1; white-space:nowrap; }
-      .mono { font-size:15mm; font-weight:bold; color:${DARK}; letter-spacing:2mm; font-family:Georgia,serif; line-height:1; }
-      .divider { width:42mm; height:0.4mm; background:${DARK}; margin:2.5mm 0; opacity:0.35; }
-      .front-name { font-size:5.5mm; font-weight:bold; color:${DARK}; letter-spacing:1.2mm; text-transform:uppercase; font-family:Georgia,serif; text-align:center; }
-      .front-sub { font-size:2.4mm; color:rgba(44,24,0,0.55); letter-spacing:0.8mm; text-transform:uppercase; margin-top:1.2mm; }
-      /* BACK */
-      .back { background:${CARD_BG}; display:flex; flex-direction:row; overflow:hidden; }
-      .back-left { width:30mm; background:${PANEL_BG}; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2.5mm; padding:3.5mm; }
-      .qr-wrap { background:#fff; padding:1.8mm; border-radius:1.2mm; }
-      .qr-wrap img { width:22mm; height:22mm; display:block; }
-      .back-label { font-size:2.2mm; color:${LIGHT_TEXT}; letter-spacing:0.5mm; text-transform:uppercase; opacity:0.85; }
-      .back-right { flex:1; padding:4.5mm 3.5mm 4.5mm 4.5mm; display:flex; flex-direction:column; justify-content:space-between; position:relative; }
-      .back-watermark { position:absolute; top:50%; left:50%; transform:translate(-50%,-60%); font-size:9mm; font-weight:bold; color:rgba(180,145,26,0.09); font-family:Georgia,serif; line-height:1; white-space:nowrap; }
-      .back-name { font-size:5mm; font-weight:bold; color:${DARK}; letter-spacing:0.4mm; font-family:Georgia,serif; line-height:1.2; }
-      .back-sub { font-size:2.3mm; color:${LABEL}; letter-spacing:0.5mm; text-transform:uppercase; margin-top:0.6mm; }
-      .info-row { font-size:2.8mm; color:${DARK}; line-height:1.9; }
-      .info-label { color:${LABEL}; font-size:2.3mm; }
-      .back-footer { font-size:2.2mm; color:${LABEL}; letter-spacing:0.5mm; }
-    </style></head><body>
-      <!-- FRONT -->
-      <div class="page front">
-        <div class="front-watermark">NEW ERA</div>
-        <div class="mono">${initials.toUpperCase()}</div>
-        <div class="divider"></div>
-        <div class="front-name">${student.firstName} ${student.lastName}</div>
-        <div class="front-sub">New Era Cafeteria &nbsp;•&nbsp; Member</div>
-      </div>
-      <!-- BACK -->
-      <div class="page back">
-        <div class="back-left">
-          ${qrDataUrl ? `<div class="qr-wrap"><img src="${qrDataUrl}" /></div>` : ""}
-          <div class="back-label">Scan ID</div>
-        </div>
-        <div class="back-right">
-          <div class="back-watermark">NEW ERA</div>
-          <div>
-            <div class="back-name">${student.firstName} ${student.lastName}</div>
-            <div class="back-sub">New Era Cafeteria VIP</div>
-          </div>
-          <div class="info-row">
-            <div><span class="info-label">ID &nbsp;&nbsp;&nbsp;</span>${student.customerId}</div>
-            <div><span class="info-label">Dept &nbsp;</span>${student.department}</div>
-            <div><span class="info-label">Level </span>${student.classLevel}</div>
-          </div>
-          <div class="back-footer">NEW ERA CAFETERIA</div>
-        </div>
-      </div>
-    </body></html>`);
-    doc.close();
+    const printHtml = `<!DOCTYPE html>
+<html>
+<head>
+<title>ID Card</title>
+<style>
+  @page { size: 85.6mm 53.98mm; margin: 0; }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html, body { width:85.6mm; font-family:Georgia,serif; background:#fff; }
+  .page { width:85.6mm; height:53.98mm; page-break-after:always; overflow:hidden; display:block; }
+  .front { background:${FRONT_BG}; display:flex; flex-direction:column; align-items:center; justify-content:center; position:relative; }
+  .front-watermark { position:absolute; top:50%; left:50%; transform:translate(-50%,-60%); font-size:11mm; font-weight:bold; color:rgba(44,24,0,0.06); font-family:Georgia,serif; line-height:1; white-space:nowrap; }
+  .mono { font-size:15mm; font-weight:bold; color:${DARK}; letter-spacing:2mm; font-family:Georgia,serif; line-height:1; }
+  .divider { width:42mm; height:0.4mm; background:${DARK}; margin:2.5mm 0; opacity:0.35; }
+  .front-name { font-size:5.5mm; font-weight:bold; color:${DARK}; letter-spacing:1.2mm; text-transform:uppercase; font-family:Georgia,serif; text-align:center; }
+  .front-sub { font-size:2.4mm; color:rgba(44,24,0,0.55); letter-spacing:0.8mm; text-transform:uppercase; margin-top:1.2mm; }
+  .back { background:${CARD_BG}; display:flex; flex-direction:row; overflow:hidden; }
+  .back-left { width:30mm; background:${PANEL_BG}; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2.5mm; padding:3.5mm; }
+  .qr-wrap { background:#fff; padding:1.8mm; border-radius:1.2mm; }
+  .qr-wrap img { width:22mm; height:22mm; display:block; }
+  .back-label { font-size:2.2mm; color:${LIGHT_TEXT}; letter-spacing:0.5mm; text-transform:uppercase; opacity:0.85; }
+  .back-right { flex:1; padding:4.5mm 3.5mm 4.5mm 4.5mm; display:flex; flex-direction:column; justify-content:space-between; position:relative; }
+  .back-watermark { position:absolute; top:50%; left:50%; transform:translate(-50%,-60%); font-size:9mm; font-weight:bold; color:rgba(180,145,26,0.09); font-family:Georgia,serif; line-height:1; white-space:nowrap; }
+  .back-name { font-size:5mm; font-weight:bold; color:${DARK}; letter-spacing:0.4mm; font-family:Georgia,serif; line-height:1.2; }
+  .back-sub { font-size:2.3mm; color:${LABEL}; letter-spacing:0.5mm; text-transform:uppercase; margin-top:0.6mm; }
+  .info-row { font-size:2.8mm; color:${DARK}; line-height:1.9; }
+  .info-label { color:${LABEL}; font-size:2.3mm; }
+  .back-footer { font-size:2.2mm; color:${LABEL}; letter-spacing:0.5mm; }
+</style>
+</head>
+<body>
+<div class="page front">
+  <div class="front-watermark">NEW ERA</div>
+  <div class="mono">${initials.toUpperCase()}</div>
+  <div class="divider"></div>
+  <div class="front-name">${student.firstName} ${student.lastName}</div>
+  <div class="front-sub">New Era Cafeteria &nbsp;•&nbsp; Member</div>
+</div>
+<div class="page back">
+  <div class="back-left">
+    ${qrDataUrl ? `<div class="qr-wrap"><img src="${qrDataUrl}" /></div>` : ""}
+    <div class="back-label">Scan ID</div>
+  </div>
+  <div class="back-right">
+    <div class="back-watermark">NEW ERA</div>
+    <div>
+      <div class="back-name">${student.firstName} ${student.lastName}</div>
+      <div class="back-sub">New Era Cafeteria VIP</div>
+    </div>
+    <div class="info-row">
+      <div><span class="info-label">ID &nbsp;&nbsp;&nbsp;</span>${student.customerId}</div>
+      <div><span class="info-label">Dept &nbsp;</span>${student.department}</div>
+      <div><span class="info-label">Level </span>${student.classLevel}</div>
+    </div>
+    <div class="back-footer">NEW ERA CAFETERIA</div>
+  </div>
+</div>
+</body>
+</html>`;
 
-    // Use setTimeout instead of iframe.onload — more reliable after doc.write()
-    setTimeout(() => {
+    // Use blob + srcdoc to avoid stream issues
+    const blob = new Blob([printHtml], { type: "text/html" });
+    const url = URL.createObjectURL(blob);
+    iframe.src = url;
+
+    iframe.onload = () => {
       try {
         iframe.contentWindow?.focus();
         iframe.contentWindow?.print();
       } catch (e) {
         console.error("Print failed:", e);
       }
+
+      // Cleanup after print dialog closes (use timeout since onafterprint isn't available on iframes)
       setTimeout(() => {
-        if (document.body.contains(iframe)) document.body.removeChild(iframe);
-      }, 2000);
-    }, 500);
+        if (document.body.contains(iframe)) {
+          document.body.removeChild(iframe);
+        }
+        URL.revokeObjectURL(url);
+      }, 5000);
+    };
   };
 
   const handleDownloadPDF = async () => {

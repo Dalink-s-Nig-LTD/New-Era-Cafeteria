@@ -2,8 +2,17 @@
 // Uses @tauri-apps/plugin-sql for native SQLite access
 
 // Dynamic import to prevent bundling issues in production
-let Database: any = null;
-const loadDatabase = async () => {
+interface TauriSQLDatabase {
+  load(dbName: string): Promise<TauriDB>;
+}
+
+interface TauriDB {
+  execute(sql: string, params?: (string | number | null)[]): Promise<{ rowsAffected: number }>;
+  select(sql: string, params?: (string | number | null)[]): Promise<Record<string, unknown>[]>;
+}
+
+let Database: TauriSQLDatabase | null = null;
+const loadDatabase = async (): Promise<TauriSQLDatabase> => {
   if (!Database) {
     const mod = await import("@tauri-apps/plugin-sql");
     Database = mod.default;
@@ -78,7 +87,7 @@ interface CachedOrderRow {
 }
 
 class SQLiteOrderDB {
-  private db: any = null;
+  private db: TauriDB | null = null;
   private initPromise: Promise<void> | null = null;
 
   async init(): Promise<void> {
@@ -192,6 +201,27 @@ class SQLiteOrderDB {
           cached_at INTEGER NOT NULL
         )`);
         console.log("✅ orders_cache table initialized");
+
+        await this.db.execute(`CREATE TABLE IF NOT EXISTS shift_settings_cache (
+          key TEXT PRIMARY KEY,
+          value TEXT NOT NULL,
+          cached_at INTEGER NOT NULL
+        )`);
+        console.log("✅ shift_settings_cache table initialized");
+
+        await this.db.execute(`CREATE TABLE IF NOT EXISTS offline_sessions (
+          session_id TEXT PRIMARY KEY,
+          user_id TEXT,
+          access_code TEXT,
+          role TEXT NOT NULL,
+          created_at INTEGER NOT NULL,
+          expires_at INTEGER NOT NULL,
+          last_activity INTEGER NOT NULL
+        )`);
+        console.log("✅ offline_sessions table initialized");
+
+        await this.db.execute(`CREATE INDEX IF NOT EXISTS idx_offline_sessions_expires_at ON offline_sessions(expires_at)`);
+        console.log("✅ offline_sessions index created");
       } catch (error) {
         console.error("❌ Failed to initialize SQLite:", error);
         this.initPromise = null;
@@ -203,7 +233,7 @@ class SQLiteOrderDB {
     return this.initPromise;
   }
 
-  private async ensureDB(): Promise<any> {
+  private async ensureDB(): Promise<TauriDB> {
     if (!this.db) {
       console.log("[SQLiteDB] Database not initialized, initializing now...");
       await this.init();
@@ -218,8 +248,8 @@ class SQLiteOrderDB {
     const db = await this.ensureDB();
 
     // Use the order's own createdAt to ensure timestamp consistency with backend calls
-    const createdAt = (order as any).createdAt || Date.now();
-    const clientOrderId: string | undefined = (order as any).clientOrderId;
+    const createdAt = order.createdAt || Date.now();
+    const clientOrderId = order.clientOrderId;
 
     // Dedup: if this clientOrderId is already in the queue, return the existing entry
     if (clientOrderId) {
@@ -742,6 +772,294 @@ class SQLiteOrderDB {
     );
 
     return rows.map((row) => JSON.parse(row.order_data));
+  }
+
+  // ---- Query / lookup methods ----
+
+  async getMenuItemByName(name: string): Promise<{
+    _id: string;
+    name: string;
+    category: string;
+    price: number;
+    image?: string;
+    available: boolean;
+  } | null> {
+    const db = await this.ensureDB();
+    const rows: CachedMenuItemRow[] = await db.select(
+      `SELECT _id, name, category, price, image, available FROM menu_items_cache WHERE LOWER(name) = LOWER($1) LIMIT 1`,
+      [name],
+    );
+    const row = rows[0];
+    if (!row) return null;
+    return {
+      _id: row._id,
+      name: row.name,
+      category: row.category,
+      price: row.price,
+      image: row.image || undefined,
+      available: !!row.available,
+    };
+  }
+
+  async getMenuItemsByCategory(category: string): Promise<
+    Array<{
+      _id: string;
+      name: string;
+      category: string;
+      price: number;
+      image?: string;
+      available: boolean;
+    }>
+  > {
+    const db = await this.ensureDB();
+    const rows: CachedMenuItemRow[] = await db.select(
+      `SELECT _id, name, category, price, image, available FROM menu_items_cache WHERE category = $1 ORDER BY name ASC`,
+      [category],
+    );
+    return rows.map((row) => ({
+      _id: row._id,
+      name: row.name,
+      category: row.category,
+      price: row.price,
+      image: row.image || undefined,
+      available: !!row.available,
+    }));
+  }
+
+  async getMenuCategories(): Promise<string[]> {
+    const db = await this.ensureDB();
+    const rows: { category: string }[] = await db.select(
+      `SELECT DISTINCT category FROM menu_items_cache ORDER BY category ASC`,
+    );
+    return rows.map((row) => row.category);
+  }
+
+  async validateAccessCode(code: string): Promise<boolean> {
+    const db = await this.ensureDB();
+    const rows: CachedAccessCodeRow[] = await db.select(
+      `SELECT code, is_active FROM access_codes_cache WHERE code = $1 LIMIT 1`,
+      [code],
+    );
+    const row = rows[0];
+    return row ? !!row.is_active : false;
+  }
+
+  async getAccessCodeShift(code: string): Promise<"morning" | "afternoon" | "evening" | null> {
+    const db = await this.ensureDB();
+    const rows: CachedAccessCodeRow[] = await db.select(
+      `SELECT shift, is_active FROM access_codes_cache WHERE code = $1 AND is_active = 1 LIMIT 1`,
+      [code],
+    );
+    const row = rows[0];
+    if (!row) return null;
+    return (row.shift as "morning" | "afternoon" | "evening") || null;
+  }
+
+  async getCustomerByCustomerId(customerId: string): Promise<{
+    _id: string;
+    customerId: string;
+    barcodeData: string;
+    firstName: string;
+    lastName: string;
+    department: string;
+    classLevel: string;
+    photo?: string;
+    balance: number;
+    isActive: boolean;
+    expiryDate?: number;
+    createdAt: number;
+    updatedAt: number;
+  } | null> {
+    const db = await this.ensureDB();
+    const rows: CachedCustomerRow[] = await db.select(
+      `SELECT _id, customer_id, barcode, first_name, last_name, department, class_level, photo, balance, is_active, expiry_date, created_at, updated_at FROM customers_cache WHERE customer_id = $1 LIMIT 1`,
+      [customerId],
+    );
+    const row = rows[0];
+    if (!row) return null;
+    return {
+      _id: row._id,
+      customerId: row.customer_id,
+      barcodeData: row.barcode,
+      firstName: row.first_name,
+      lastName: row.last_name,
+      department: row.department,
+      classLevel: row.class_level,
+      photo: row.photo || undefined,
+      balance: row.balance,
+      isActive: !!row.is_active,
+      expiryDate: row.expiry_date || undefined,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  }
+
+  async searchCustomers(query: string): Promise<
+    Array<{
+      _id: string;
+      customerId: string;
+      barcodeData: string;
+      firstName: string;
+      lastName: string;
+      department: string;
+      classLevel: string;
+      photo?: string;
+      balance: number;
+      isActive: boolean;
+      expiryDate?: number;
+      createdAt: number;
+      updatedAt: number;
+    }>
+  > {
+    const db = await this.ensureDB();
+    const searchTerm = `%${query}%`;
+    const rows: CachedCustomerRow[] = await db.select(
+      `SELECT _id, customer_id, barcode, first_name, last_name, department, class_level, photo, balance, is_active, expiry_date, created_at, updated_at 
+       FROM customers_cache 
+       WHERE LOWER(first_name) LIKE LOWER($1) OR LOWER(last_name) LIKE LOWER($1) OR LOWER(barcode) LIKE LOWER($1)
+       ORDER BY first_name ASC, last_name ASC LIMIT 50`,
+      [searchTerm],
+    );
+    return rows.map((row) => ({
+      _id: row._id,
+      customerId: row.customer_id,
+      barcodeData: row.barcode,
+      firstName: row.first_name,
+      lastName: row.last_name,
+      department: row.department,
+      classLevel: row.class_level,
+      photo: row.photo || undefined,
+      balance: row.balance,
+      isActive: !!row.is_active,
+      expiryDate: row.expiry_date || undefined,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    }));
+  }
+
+  // ---- Shift settings cache ----
+
+  async cacheShiftSettings(shifts: string[]): Promise<void> {
+    const db = await this.ensureDB();
+    const now = Date.now();
+    await db.execute(`DELETE FROM shift_settings_cache`);
+    await db.execute(
+      `INSERT OR REPLACE INTO shift_settings_cache (key, value, cached_at) VALUES ($1, $2, $3)`,
+      ["enabled_shifts", JSON.stringify(shifts), now],
+    );
+    console.log(`[SQLiteDB] Cached shift settings: ${shifts.join(", ")}`);
+  }
+
+  async getCachedShiftSettings(): Promise<string[]> {
+    const db = await this.ensureDB();
+    const rows: { value: string }[] = await db.select(
+      `SELECT value FROM shift_settings_cache WHERE key = $1`,
+      ["enabled_shifts"],
+    );
+    if (rows.length === 0) return [];
+    try {
+      return JSON.parse(rows[0].value);
+    } catch {
+      return [];
+    }
+  }
+
+  // ---- Comprehensive order caching for admin dashboard ----
+
+  async getLastCachedOrderTimestamp(): Promise<number | null> {
+    const db = await this.ensureDB();
+    const rows: { created_at: number }[] = await db.select(
+      `SELECT created_at FROM orders_cache ORDER BY created_at DESC LIMIT 1`,
+    );
+    return rows.length > 0 ? rows[0].created_at : null;
+  }
+
+  async getCachedOrdersCount(): Promise<number> {
+    const db = await this.ensureDB();
+    const rows: { count: number }[] = await db.select(
+      `SELECT COUNT(*) as count FROM orders_cache`,
+    );
+    return rows[0]?.count || 0;
+  }
+
+  async clearAllCachedOrders(): Promise<void> {
+    const db = await this.ensureDB();
+    await db.execute(`DELETE FROM orders_cache`);
+    console.log("[SQLiteDB] Cleared all cached orders");
+  }
+
+  async cacheOrdersBatch(
+    orders: Array<{
+      _id: string;
+      items: Array<{
+        menuItemId?: string;
+        name: string;
+        price: number;
+        quantity: number;
+        category?: string;
+        isCustom?: boolean;
+      }>;
+      total: number;
+      paymentMethod: string;
+      status: string;
+      orderType?: string;
+      cashierCode: string;
+      cashierName?: string;
+      clientOrderId?: string;
+      createdAt: number;
+    }>,
+  ): Promise<void> {
+    if (orders.length === 0) return;
+    const db = await this.ensureDB();
+    const now = Date.now();
+
+    // Check for existing orders and skip duplicates (by _id)
+    const existingIds = new Set<string>();
+    if (orders.length > 0) {
+      const idList = orders.map((o) => `'${o._id}'`).join(",");
+      const existing: { _id: string }[] = await db.select(
+        `SELECT _id FROM orders_cache WHERE _id IN (${idList})`,
+      );
+      existing.forEach((e) => existingIds.add(e._id));
+    }
+
+    for (const order of orders) {
+      if (!existingIds.has(order._id)) {
+        await db.execute(
+          `INSERT OR REPLACE INTO orders_cache (_id, order_data, created_at, cached_at) VALUES ($1, $2, $3, $4)`,
+          [order._id, JSON.stringify(order), order.createdAt, now],
+        );
+      }
+    }
+    console.log(
+      `[SQLiteDB] Cached ${orders.length - existingIds.size} new orders (${existingIds.size} duplicates skipped)`,
+    );
+  }
+
+  async refreshAllCachedOrders(
+    orders: Array<{
+      _id: string;
+      items: Array<{
+        menuItemId?: string;
+        name: string;
+        price: number;
+        quantity: number;
+        category?: string;
+        isCustom?: boolean;
+      }>;
+      total: number;
+      paymentMethod: string;
+      status: string;
+      orderType?: string;
+      cashierCode: string;
+      cashierName?: string;
+      clientOrderId?: string;
+      createdAt: number;
+    }>,
+  ): Promise<void> {
+    // This replaces all cached orders (atomic refresh)
+    await this.cacheOrders(orders);
+    console.log(`[SQLiteDB] Refreshed all cached orders (${orders.length} total)`);
   }
 
   private rowToQueuedOrder(row: OrderQueueRow): QueuedOrder {

@@ -43,14 +43,8 @@ export function AllTimeSales() {
   const [localData, setLocalData] = useState<AllTimeSalesData | null>(null);
   const [localLoading, setLocalLoading] = useState(isDesktop);
 
-  const remoteAllOrders = useQuery(
-    api.orders.getAllOrders,
-    isDesktop ? { limit: 20000, daysBack: 36500 } : "skip",
-  );
-  const remoteSummary = useQuery(
-    api.getAllTimeSales.getAllTimeSales,
-    isDesktop ? "skip" : {},
-  );
+  // Use aggregated query (works for both desktop and web)
+  const remoteSummary = useQuery(api.getAllTimeSales.getAllTimeSales, {});
 
   useEffect(() => {
     if (!isDesktop) return;
@@ -76,23 +70,21 @@ export function AllTimeSales() {
     loadLocalData();
   }, [isDesktop]);
 
-  const desktopRemoteData = remoteAllOrders
-    ? buildAllTimeSalesData(
-        remoteAllOrders as Array<{
-          _id: string;
-          total: number;
-          orderType?: string;
-          cashierCode: string;
-          createdAt: number;
-        }>,
-      )
+  // Convert aggregated summary to AllTimeSalesData format if needed
+  const remoteData = remoteSummary
+    ? {
+        totalRevenue: remoteSummary.totalRevenue,
+        totalOrders: remoteSummary.totalOrders,
+        avgOrderValue: remoteSummary.avgOrderValue,
+        totalCustomers: remoteSummary.totalCustomers,
+      }
     : null;
 
   const data = isDesktop
-    ? (localData ?? desktopRemoteData ?? null)
-    : (remoteSummary ?? null);
+    ? (localData ?? remoteData ?? null)
+    : (remoteData ?? null);
   const isLoading = isDesktop
-    ? localLoading && remoteAllOrders === undefined && !localData
+    ? localLoading && remoteSummary === undefined && !localData
     : remoteSummary === undefined;
 
   if (isLoading || !data) {

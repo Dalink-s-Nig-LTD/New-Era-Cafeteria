@@ -27,7 +27,7 @@ export const checkAllTodayOrders = query({
         morningShift.push(order);
       } else if (timeInMinutes >= 900 && timeInMinutes < 1020) {
         afternoonShift.push(order);
-      } else if (timeInMinutes >= 1020 && timeInMinutes < 1320) {
+      } else if (timeInMinutes >= 1020 && timeInMinutes < 1440) {
         eveningShift.push(order);
       } else {
         afterEvening.push(order);

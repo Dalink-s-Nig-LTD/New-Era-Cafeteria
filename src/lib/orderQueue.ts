@@ -45,7 +45,7 @@ class IndexedDBQueue {
     const db = await this.ensureDB();
     const queueId = `queue_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     // Use the order's existing createdAt/timestamp if provided, to keep timestamps consistent
-    const orderCreatedAt = (order as any).createdAt || (order.timestamp instanceof Date ? order.timestamp.getTime() : Date.now());
+    const orderCreatedAt = order.createdAt || (order.timestamp instanceof Date ? order.timestamp.getTime() : Date.now());
     const queuedOrder: QueuedOrder = {
       id: queueId,
       order,
@@ -338,11 +338,11 @@ class OrderQueue {
       }
     }
     
-    // IndexedDB fallback: store in localStorage
+    // IndexedDB fallback: store in sessionStorage (temporary, cleared on session end)
     const queueId = `special_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    const existing = JSON.parse(localStorage.getItem('specialOrderQueue') || '[]');
+    const existing = JSON.parse(sessionStorage.getItem('specialOrderQueue') || '[]');
     existing.push({ id: queueId, data, status: 'pending', createdAt: Date.now() });
-    localStorage.setItem('specialOrderQueue', JSON.stringify(existing));
+    sessionStorage.setItem('specialOrderQueue', JSON.stringify(existing));
     return queueId;
   }
 
@@ -357,8 +357,8 @@ class OrderQueue {
       }
     }
     
-    const existing = JSON.parse(localStorage.getItem('specialOrderQueue') || '[]');
-    return existing.filter((o: any) => o.status === 'pending' || o.status === 'failed');
+    const existing = JSON.parse(sessionStorage.getItem('specialOrderQueue') || '[]');
+    return existing.filter((o) => o.status === 'pending' || o.status === 'failed');
   }
 
   async updateSpecialOrderStatus(queueId: string, status: string, errorMessage?: string): Promise<void> {
@@ -373,9 +373,9 @@ class OrderQueue {
       }
     }
     
-    const existing = JSON.parse(localStorage.getItem('specialOrderQueue') || '[]');
-    const updated = existing.map((o: any) => o.id === queueId ? { ...o, status, errorMessage } : o);
-    localStorage.setItem('specialOrderQueue', JSON.stringify(updated));
+    const existing = JSON.parse(sessionStorage.getItem('specialOrderQueue') || '[]');
+    const updated = existing.map((o) => o.id === queueId ? { ...o, status, errorMessage } : o);
+    sessionStorage.setItem('specialOrderQueue', JSON.stringify(updated));
   }
 }
 

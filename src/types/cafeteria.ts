@@ -67,6 +67,9 @@ export interface Order {
   paymentMethod: 'cash' | 'card' | 'transfer' | 'customer_balance';
   status: 'pending' | 'completed' | 'cancelled';
   cashierCode?: string;
+  createdAt?: number;
+  clientOrderId?: string;
+  orderType?: 'regular' | 'special';
 }
 
 export interface SalesData {
@@ -95,6 +98,15 @@ export interface AccessCode {
   usedAt: Date | null;
   usedBy: string | null;
   isRevoked: boolean;
+}
+
+// Response from validateCode query
+export interface ValidateCodeResponse {
+  valid: boolean;
+  error?: string;
+  role?: string;
+  code?: string;
+  shift?: "morning" | "afternoon" | "evening";
 }
 
 // User profile for dashboard

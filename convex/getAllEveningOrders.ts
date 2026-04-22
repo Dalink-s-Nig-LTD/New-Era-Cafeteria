@@ -16,7 +16,7 @@ export const getAllEveningOrders = query({
       const hours = date.getHours();
       const minutes = date.getMinutes();
       const timeInMinutes = hours * 60 + minutes;
-      return timeInMinutes >= 900 && timeInMinutes < 1320;
+      return timeInMinutes >= 900 && timeInMinutes < 1440;
     });
     
     // Calculate exactly like the frontend does

@@ -106,8 +106,6 @@ function CustomerKiosk() {
   // Exit PIN dialog state
   const [exitDialogOpen, setExitDialogOpen] = useState(false);
   const [exitPin, setExitPin] = useState("");
-  const [exitError, setExitError] = useState("");
-  const [validatingPin, setValidatingPin] = useState(false);
 
   const isDesktop = typeof window !== "undefined" && "__TAURI__" in window;
 
@@ -216,11 +214,9 @@ function CustomerKiosk() {
     api.orders.createOrderWithBalancePayment,
   );
 
-  // PIN validation query - only runs when exitPin is 4 chars
-  const pinValidation = useQuery(
-    api.accessCodes.validateCode,
-    exitPin.length === 4 ? { code: exitPin } : "skip",
-  );
+  // PIN validation: validate locally from SQLite cache
+  const [pinValidationError, setPinValidationError] = useState("");
+  const [pinValidating, setPinValidating] = useState(false);
 
   useEffect(() => {
     if (step === "scan" && inputRef.current) {
@@ -273,24 +269,54 @@ function CustomerKiosk() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
-  // Handle PIN validation result
-  useEffect(() => {
-    if (exitPin.length === 4 && pinValidation !== undefined) {
-      if (pinValidation.valid) {
+  const validatePinLocally = useCallback(async () => {
+    try {
+      if (!isDesktop) {
+        // On web, PIN validation not available locally
+        setPinValidationError("PIN validation not available on web");
+        setPinValidating(false);
+        setExitPin("");
+        return;
+      }
+
+      const sqliteDB = getSqliteDB();
+      if (!sqliteDB) {
+        setPinValidationError("Database unavailable");
+        setPinValidating(false);
+        setExitPin("");
+        return;
+      }
+
+      const isValid = await sqliteDB.validateAccessCode(exitPin);
+      if (isValid) {
+        // PIN is valid, exit
         setExitDialogOpen(false);
         setExitPin("");
-        setExitError("");
+        setPinValidationError("");
         navigate("/");
       } else {
-        setExitError(pinValidation.error || "Invalid access code");
+        setPinValidationError("Invalid access code");
         setExitPin("");
       }
+    } catch (error) {
+      console.error("PIN validation error:", error);
+      setPinValidationError("Validation error");
+      setExitPin("");
+    } finally {
+      setPinValidating(false);
     }
-  }, [pinValidation, exitPin.length, navigate]);
+  }, [isDesktop, exitPin, navigate]);
+
+  useEffect(() => {
+    if (exitPin.length === 4) {
+      setPinValidating(true);
+      validatePinLocally();
+    }
+  }, [exitPin, validatePinLocally]);
 
   const handleExitDialogOpen = () => {
     setExitPin("");
-    setExitError("");
+    setPinValidationError("");
     setExitDialogOpen(true);
   };
 
@@ -1054,7 +1080,7 @@ function CustomerKiosk() {
           if (!open) {
             setExitDialogOpen(false);
             setExitPin("");
-            setExitError("");
+            setPinValidationError("");
           }
         }}
       >
@@ -1076,7 +1102,7 @@ function CustomerKiosk() {
               value={exitPin}
               onChange={(value) => {
                 setExitPin(value.toUpperCase());
-                setExitError("");
+                setPinValidationError("");
               }}
               autoFocus
             >
@@ -1087,12 +1113,12 @@ function CustomerKiosk() {
                 <InputOTPSlot index={3} className="w-12 h-12 text-lg" />
               </InputOTPGroup>
             </InputOTP>
-            {exitError && (
+            {pinValidationError && (
               <p className="text-sm text-destructive font-medium">
-                {exitError}
+                {pinValidationError}
               </p>
             )}
-            {exitPin.length === 4 && !pinValidation && !exitError && (
+            {exitPin.length === 4 && pinValidating && !pinValidationError && (
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <Loader2 className="w-4 h-4 animate-spin" /> Validating...
               </div>
@@ -1104,7 +1130,7 @@ function CustomerKiosk() {
               onClick={() => {
                 setExitDialogOpen(false);
                 setExitPin("");
-                setExitError("");
+                setPinValidationError("");
               }}
             >
               Cancel

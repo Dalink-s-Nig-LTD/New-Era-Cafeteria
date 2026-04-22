@@ -1,6 +1,6 @@
 import React, { useState } from "react";
-import { useMutation } from "@/lib/convexApi";
-import { api } from "@/lib/convexApi";
+import { useMutation } from "convex/react";
+import { api } from "../../../convex/_generated/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -47,7 +47,10 @@ export function FundTopUp({ customer, open, onOpenChange }: FundTopUpProps) {
         description,
         addedBy: authCode || "manager",
       });
-      toast({ title: "Funds added", description: `New balance: ₦${result.balanceAfter.toLocaleString()}` });
+      toast({
+        title: "Funds added",
+        description: `New balance: ₦${result.balanceAfter.toLocaleString()}`,
+      });
       onOpenChange(false);
       setAmount("");
     } catch (e: unknown) {
@@ -62,16 +65,26 @@ export function FundTopUp({ customer, open, onOpenChange }: FundTopUpProps) {
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Add Funds — {customer.firstName} {customer.lastName}</DialogTitle>
+          <DialogTitle>
+            Add Funds — {customer.firstName} {customer.lastName}
+          </DialogTitle>
         </DialogHeader>
         <div className="space-y-4 py-4">
           <div className="text-sm text-muted-foreground">
-            Current Balance: <span className="font-bold text-foreground">₦{customer.balance.toLocaleString()}</span>
+            Current Balance:{" "}
+            <span className="font-bold text-foreground">
+              ₦{customer.balance.toLocaleString()}
+            </span>
           </div>
 
           <div className="flex gap-2 flex-wrap">
             {PRESETS.map((p) => (
-              <Button key={p} variant="outline" size="sm" onClick={() => setAmount(String(p))}>
+              <Button
+                key={p}
+                variant="outline"
+                size="sm"
+                onClick={() => setAmount(String(p))}
+              >
                 ₦{p.toLocaleString()}
               </Button>
             ))}

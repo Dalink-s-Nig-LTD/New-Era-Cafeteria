@@ -14,9 +14,19 @@ export async function bootstrapReferenceData(
   const lastSyncAt = lastSyncRaw ? Number(lastSyncRaw) : 0;
   const isFresh = Number.isFinite(lastSyncAt) && Date.now() - lastSyncAt < REF_CACHE_TTL_MS;
 
-  if (isFresh) {
+  // Check if cache is empty (not just TTL expiry)
+  const cachedMenuItems = await sqliteDB.getCachedMenuItems();
+  const cacheIsEmpty = cachedMenuItems.length === 0;
+
+  if (isFresh && !cacheIsEmpty) {
     console.log("[Bootstrap] Reference cache still fresh, skipping refresh");
     return;
+  }
+
+  if (cacheIsEmpty) {
+    console.log("[Bootstrap] Empty reference cache detected, fetching from Convex (new PC or fresh install)...");
+  } else {
+    console.log("[Bootstrap] Reference cache expired, refreshing from Convex...");
   }
 
   try {
@@ -26,9 +36,13 @@ export async function bootstrapReferenceData(
       convexClient.query(api.customers.getAllCustomers, {}),
     ]);
 
+    interface MenuItemData { _id: string; name: string; category: string; price: number; image?: string; available?: boolean }
+    interface AccessCodeData { code: string; shift?: "morning" | "afternoon" | "evening"; isActive?: boolean }
+    interface CustomerData { _id: string; customerId: string; barcodeData: string; firstName: string; lastName: string; department: string; classLevel: string; photo?: string; balance?: number; isActive?: boolean; expiryDate?: number; createdAt: number; updatedAt: number }
+
     await Promise.all([
       sqliteDB.cacheMenuItems(
-        (menuItems || []).map((item: any) => ({
+        (menuItems as MenuItemData[] || []).map((item) => ({
           _id: String(item._id),
           name: item.name,
           category: item.category,
@@ -38,14 +52,14 @@ export async function bootstrapReferenceData(
         })),
       ),
       sqliteDB.cacheAccessCodes(
-        (accessCodes || []).map((code: any) => ({
+        (accessCodes as AccessCodeData[] || []).map((code) => ({
           code: code.code,
-          shift: code.shift,
+          shift: code.shift as "morning" | "afternoon" | "evening" | undefined,
           isActive: !!code.isActive,
         })),
       ),
       sqliteDB.cacheCustomers(
-        (customers || []).map((customer: any) => ({
+        (customers as CustomerData[] || []).map((customer) => ({
           _id: String(customer._id),
           customerId: customer.customerId,
           barcodeData: customer.barcodeData,

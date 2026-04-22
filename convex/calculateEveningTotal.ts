@@ -8,9 +8,9 @@ export const calculateEveningShiftTotal = query({
     today.setHours(0, 0, 0, 0);
     const todayTimestamp = today.getTime();
     
-    // Evening shift: 3:00 PM (15:00) to 10:00 PM (22:00)
+    // Evening shift: 3:00 PM (15:00) to 11:59 PM (23:59)
     const eveningStart = new Date("2026-02-03T15:00:00").getTime();
-    const eveningEnd = new Date("2026-02-03T22:00:00").getTime();
+    const eveningEnd = new Date("2026-02-03T23:59:59").getTime();
     
     // Get all orders from today
     const allOrders = await ctx.db

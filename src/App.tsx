@@ -14,10 +14,12 @@ import SplashScreen from "./components/SplashScreen";
 
 const queryClient = new QueryClient();
 
-// Import orderQueue for initialization
+// Import orderQueue and sync service for initialization
 import { orderQueue } from "@/lib/orderQueue";
 import { bootstrapHistoricalOrders } from "@/lib/bootstrapHistoricalOrders";
 import { bootstrapReferenceData } from "@/lib/bootstrapReferenceData";
+import { bootstrapAllOrders } from "@/lib/bootstrapAllOrders";
+import { initConvexSync } from "@/lib/convexSync";
 
 const isTauri =
   typeof window !== "undefined" &&
@@ -41,6 +43,13 @@ const App = () => {
 
           await bootstrapReferenceData(convex);
           console.log("✅ Reference cache bootstrap complete");
+
+          await bootstrapAllOrders(convex);
+          console.log("✅ All orders cache bootstrap complete");
+
+          // Initialize background Convex sync service
+          const syncService = initConvexSync(convex);
+          console.log("✅ Convex sync service started");
         }
       } catch (e) {
         console.error("⚠️ Initialization warning, app will still load:", e);

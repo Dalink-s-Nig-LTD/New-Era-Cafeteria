@@ -202,25 +202,37 @@ export const getRecentOrders = query({
   },
 });
 
-// Get all orders (for admin reports) - with pagination to reduce bandwidth
+// Get all orders (for admin reports) - with cursor pagination for unlimited data
 export const getAllOrders = query({
   args: {
     limit: v.optional(v.number()),
     daysBack: v.optional(v.number()),
+    lastId: v.optional(v.string()), // Cursor for pagination
   },
   handler: async (ctx, args) => {
-    const limit = args.limit || 100;
+    // Cap limit to avoid exceeding Convex's return size limit (8192 items)
+    const limit = Math.min(args.limit || 100, 5000);
     const daysBack = args.daysBack || 30;
     
     const cutoffTime = Date.now() - (daysBack * 24 * 60 * 60 * 1000);
     
-    const orders = await ctx.db
+    // Fetch with arrow-function bounds (optimized)
+    let query = ctx.db
       .query("orders")
-      .withIndex("by_createdAt")
-      .filter((q) => q.gte(q.field("createdAt"), cutoffTime))
-      .order("desc")
-      .take(limit);
+      .withIndex("by_createdAt", (q) => q.gte("createdAt", cutoffTime))
+      .order("desc");
     
+    // If we have a cursor, fetch extra and skip to after cursor
+    if (args.lastId) {
+      const allOrders = await query.collect();
+      const lastIndex = allOrders.findIndex((o) => o._id === args.lastId);
+      if (lastIndex >= 0 && lastIndex + 1 < allOrders.length) {
+        return allOrders.slice(lastIndex + 1, lastIndex + 1 + limit);
+      }
+      return [];
+    }
+    
+    const orders = await query.take(limit);
     return orders;
   },
 });
@@ -255,23 +267,23 @@ export const getOrdersStats = query({
     const lastWeekOrderCount = lastWeekOrders.length;
     const lastWeekAvg = lastWeekOrderCount > 0 ? lastWeekRevenue / lastWeekOrderCount : 0;
     
-    const revenueChange = lastWeekRevenue > 0 
-      ? ((totalRevenue - lastWeekRevenue) / lastWeekRevenue * 100).toFixed(1)
-      : "0";
-    const ordersChange = lastWeekOrderCount > 0
-      ? ((totalOrders - lastWeekOrderCount) / lastWeekOrderCount * 100).toFixed(1)
-      : "0";
-    const avgChange = lastWeekAvg > 0
-      ? ((avgOrderValue - lastWeekAvg) / lastWeekAvg * 100).toFixed(1)
-      : "0";
+    const revenueChangeNum = lastWeekRevenue > 0 
+      ? (totalRevenue - lastWeekRevenue) / lastWeekRevenue * 100
+      : 0;
+    const ordersChangeNum = lastWeekOrderCount > 0
+      ? (totalOrders - lastWeekOrderCount) / lastWeekOrderCount * 100
+      : 0;
+    const avgChangeNum = lastWeekAvg > 0
+      ? (avgOrderValue - lastWeekAvg) / lastWeekAvg * 100
+      : 0;
     
     return {
       totalRevenue,
-      revenueChange: `${revenueChange >= "0" ? "+" : ""}${revenueChange}%`,
+      revenueChange: `${revenueChangeNum >= 0 ? "+" : ""}${revenueChangeNum.toFixed(1)}%`,
       totalOrders,
-      ordersChange: `${ordersChange >= "0" ? "+" : ""}${ordersChange}%`,
+      ordersChange: `${ordersChangeNum >= 0 ? "+" : ""}${ordersChangeNum.toFixed(1)}%`,
       avgOrderValue: Math.round(avgOrderValue),
-      avgChange: `${avgChange >= "0" ? "+" : ""}${avgChange}%`,
+      avgChange: `${avgChangeNum >= 0 ? "+" : ""}${avgChangeNum.toFixed(1)}%`,
       dailyCustomers,
       dailyChange: "+0%",
     };

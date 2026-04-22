@@ -99,10 +99,50 @@ export function ExportReports() {
         const sqlite = getSqliteDB();
         orders = sqlite ? await sqlite.getCachedOrders() : [];
       } else {
-        orders = await convex.query(api.orders.getAllOrders, {
-          limit: 500,
-          daysBack: 90,
-        });
+        // fetch all orders from web using cursor pagination to get all records
+        let allOrdersWeb: any[] = [];
+        let lastId: string | undefined = undefined;
+        let batchNum = 0;
+
+        try {
+          while (true) {
+            batchNum++;
+            console.log(
+              `[ExportReports] Fetching batch ${batchNum} (cursor: ${lastId || "start"})...`,
+            );
+            const batch = await convex.query(api.orders.getAllOrders, {
+              limit: 5000,
+              daysBack: 36500,
+              lastId: lastId, // Use cursor for pagination
+            });
+
+            if (!batch || batch.length === 0) {
+              console.log(
+                `[ExportReports] Batch ${batchNum} returned 0 orders, pagination complete`,
+              );
+              break;
+            }
+
+            allOrdersWeb = allOrdersWeb.concat(batch);
+            console.log(
+              `[ExportReports] Batch ${batchNum}: ${batch.length} orders (total: ${allOrdersWeb.length})`,
+            );
+
+            // Set cursor to last order's ID for next batch
+            lastId = (batch as any[])[batch.length - 1]?._id;
+
+            if (batch.length < 5000) {
+              console.log(
+                `[ExportReports] Last batch had < 5000 orders, complete`,
+              );
+              break;
+            }
+          }
+          orders = allOrdersWeb;
+        } catch (error) {
+          console.error("Error fetching orders:", error);
+          orders = [];
+        }
       }
       setAllOrders(orders);
     }
@@ -233,7 +273,7 @@ export function ExportReports() {
       const eveningOrders = dayOrders.filter((order) => {
         const date = new Date(order.createdAt);
         const timeInMinutes = date.getHours() * 60 + date.getMinutes();
-        return timeInMinutes >= 900 && timeInMinutes < 1320; // 3:00 PM - 10:00 PM
+        return timeInMinutes >= 900 && timeInMinutes < 1440; // 3:00 PM - 11:59 PM
       });
 
       if (morningOrders.length > 0) {
@@ -482,7 +522,58 @@ export function ExportReports() {
       totalOrders += dayOrders.length;
 
       lines.push("");
-      lines.push(`  ${format(dayDate, "EEE, dd MMM yyyy")}`);
+      lines.push(`${format(dayDate, "EEE, dd MMM yyyy")}`);
+      lines.push(SEP);
+
+      // Calculate item breakdown
+      const menuFood = dayOrders.reduce((sum, order) => {
+        const menuFoodItems = (order.items || []).filter(
+          (item: any) => !item.isCustom && item.category !== "Drinks",
+        );
+        return (
+          sum +
+          menuFoodItems.reduce((s: number, i: any) => s + (i.quantity || 0), 0)
+        );
+      }, 0);
+      const menuDrinks = dayOrders.reduce((sum, order) => {
+        const menuDrinkItems = (order.items || []).filter(
+          (item: any) => !item.isCustom && item.category === "Drinks",
+        );
+        return (
+          sum +
+          menuDrinkItems.reduce((s: number, i: any) => s + (i.quantity || 0), 0)
+        );
+      }, 0);
+      const customFood = dayOrders.reduce((sum, order) => {
+        const customFoodItems = (order.items || []).filter(
+          (item: any) => item.isCustom && item.category !== "Drinks",
+        );
+        return (
+          sum +
+          customFoodItems.reduce(
+            (s: number, i: any) => s + (i.quantity || 0),
+            0,
+          )
+        );
+      }, 0);
+      const customDrinks = dayOrders.reduce((sum, order) => {
+        const customDrinkItems = (order.items || []).filter(
+          (item: any) => item.isCustom && item.category === "Drinks",
+        );
+        return (
+          sum +
+          customDrinkItems.reduce(
+            (s: number, i: any) => s + (i.quantity || 0),
+            0,
+          )
+        );
+      }, 0);
+
+      lines.push(pad("Menu Food:", `${menuFood}`));
+      lines.push(pad("Menu Drinks:", `${menuDrinks}`));
+      lines.push(pad("Custom Food:", `${customFood}`));
+      lines.push(pad("Custom Drinks:", `${customDrinks}`));
+      lines.push(SEP);
 
       const morningOrders = dayOrders.filter((order) => {
         const hour = new Date(order.createdAt).getHours();
@@ -506,7 +597,7 @@ export function ExportReports() {
         ).length;
         lines.push(
           pad(
-            `  Morning (${morningOrders.length} C:${mCash} T:${mTransfer})`,
+            `Morning (${morningOrders.length} C:${mCash} T:${mTransfer})`,
             `N${morningTotal.toLocaleString()}`,
           ),
         );
@@ -524,7 +615,7 @@ export function ExportReports() {
         ).length;
         lines.push(
           pad(
-            `  Night (${nightOrders.length} C:${nCash} T:${nTransfer})`,
+            `Night (${nightOrders.length} C:${nCash} T:${nTransfer})`,
             `N${nightTotal.toLocaleString()}`,
           ),
         );
@@ -538,7 +629,7 @@ export function ExportReports() {
       ).length;
       lines.push(
         pad(
-          `  Total (${dayOrders.length} C:${cashCount} T:${transferCount})`,
+          `Total (${dayOrders.length} C:${cashCount} T:${transferCount})`,
           `N${dayTotal.toLocaleString()}`,
         ),
       );

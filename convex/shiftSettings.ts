@@ -3,8 +3,8 @@ import { v } from "convex/values";
 
 const SHIFT_DEFAULTS = [
   { shift: "morning" as const, startHour: 7, startMinute: 0, endHour: 12, endMinute: 0 },
-  { shift: "afternoon" as const, startHour: 12, startMinute: 0, endHour: 17, endMinute: 0 },
-  { shift: "evening" as const, startHour: 17, startMinute: 0, endHour: 22, endMinute: 0 },
+  { shift: "afternoon" as const, startHour: 12, startMinute: 0, endHour: 15, endMinute: 0 },
+  { shift: "evening" as const, startHour: 15, startMinute: 0, endHour: 23, endMinute: 59 },
 ];
 
 // Get all shift settings

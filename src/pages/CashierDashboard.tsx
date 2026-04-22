@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { DashboardHeader } from "@/components/layout/DashboardHeader";
 import { MenuGrid } from "@/components/cashier/MenuGrid";
 import { Cart } from "@/components/cashier/Cart";
@@ -18,6 +18,7 @@ import Modal from "@/components/ui/Modal";
 import { useShiftSalesWithLocal } from "@/hooks/useShiftSalesWithLocal";
 import { useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
+import { getSqliteDB } from "@/lib/sqlite";
 
 interface CashierDashboardProps {
   onLogout: () => void;
@@ -28,6 +29,7 @@ export function CashierDashboard({ onLogout }: CashierDashboardProps) {
   const [mobileCartOpen, setMobileCartOpen] = useState(false);
   const [selectedShift, setSelectedShift] = useState<string | null>(null);
   const [salesReportOpen, setSalesReportOpen] = useState(false);
+  const [cachedShifts, setCachedShifts] = useState<string[] | null>(null);
   const { syncPendingOrders } = useCart();
   const { toast } = useToast();
   const [syncing, setSyncing] = useState(false);
@@ -36,6 +38,26 @@ export function CashierDashboard({ onLogout }: CashierDashboardProps) {
 
   const isTauri = "__TAURI__" in window;
 
+  // Load cached shift settings on desktop
+  useEffect(() => {
+    if (!isTauri) return;
+
+    const loadCachedShifts = async () => {
+      try {
+        const sqliteDB = getSqliteDB();
+        if (!sqliteDB) return;
+        const shifts = await sqliteDB.getCachedShiftSettings();
+        setCachedShifts(shifts);
+      } catch (error) {
+        console.error("Failed to load cached shift settings:", error);
+      }
+    };
+
+    if (salesReportOpen) {
+      loadCachedShifts();
+    }
+  }, [isTauri, salesReportOpen]);
+
   const {
     shiftSales,
     isLoading,
@@ -43,10 +65,14 @@ export function CashierDashboard({ onLogout }: CashierDashboardProps) {
     localOrderCount,
     unsyncedCount,
   } = useShiftSalesWithLocal(salesReportOpen);
-  const enabledShifts = useQuery(
+
+  // Use cached shifts on desktop, fallback to remote on web
+  const remoteEnabledShifts = useQuery(
     api.shiftSettings.getEnabledShifts,
-    salesReportOpen ? {} : "skip",
+    !isTauri && salesReportOpen ? {} : "skip",
   ) as string[] | undefined;
+
+  const enabledShifts = isTauri ? cachedShifts : remoteEnabledShifts;
 
   // Access code breakdown is now directly from backend (already filtered by shift assignment)
 

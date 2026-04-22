@@ -1,18 +1,19 @@
 import { query } from "./_generated/server";
 
-export const getAllTimeSales = query({
+export const npgetAllTimeSales = query({
   args: {},
   handler: async (ctx) => {
-    // Hard bounds keep this query under Convex's execution limit on larger datasets.
-    const LOOKBACK_DAYS = 45;
-    const MAX_ORDERS_SCANNED = 3000;
+    // Fetch ALL historical orders - no cap, truly all-time data
+    // Using arrow-function bounds for performance optimization
+    const LOOKBACK_DAYS = 365 * 20; // 20 years of history (covers all possible dates)
     const cutoff = Date.now() - LOOKBACK_DAYS * 24 * 60 * 60 * 1000;
 
+    // Fetch all orders - no limit on count
     const allOrdersRaw = await ctx.db
       .query("orders")
       .withIndex("by_createdAt", (q) => q.gte("createdAt", cutoff))
       .order("desc")
-      .take(MAX_ORDERS_SCANNED);
+      .collect(); // Get ALL orders, not just first 15000
 
     const salesByDate: Record<string, { revenue: number; orders: number }> = {};
     const salesByCashier: Record<string, { revenue: number; orders: number }> = {};
@@ -55,9 +56,8 @@ export const getAllTimeSales = query({
       salesByCashier: Object.entries(salesByCashier)
         .map(([cashierCode, data]) => ({ cashierCode, ...data }))
         .sort((a, b) => b.revenue - a.revenue),
-      sampledWindowDays: LOOKBACK_DAYS,
-      sampledOrderCap: MAX_ORDERS_SCANNED,
-      isSampled: allOrdersRaw.length >= MAX_ORDERS_SCANNED,
+      isSampled: false, // Now fetching all orders, not sampled
+      totalOrdersCaptured: allOrdersRaw.length, // Show how many orders were actually fetched
     };
   },
 });

@@ -1,6 +1,6 @@
 import React, { useState } from "react";
-import { useQuery, useMutation } from "@/lib/convexApi";
-import { api } from "@/lib/convexApi";
+import { useQuery, useMutation } from "convex/react";
+import { api } from "../../../convex/_generated/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";

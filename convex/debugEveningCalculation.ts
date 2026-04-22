@@ -16,7 +16,7 @@ export const debugEveningCalculation = query({
       const hours = date.getHours();
       const minutes = date.getMinutes();
       const timeInMinutes = hours * 60 + minutes;
-      return timeInMinutes >= 900 && timeInMinutes < 1320; // 3:00 PM - 10:00 PM
+      return timeInMinutes >= 900 && timeInMinutes < 1440; // 3:00 PM - 11:59 PM
     });
     
     // Calculate exactly like the frontend does
