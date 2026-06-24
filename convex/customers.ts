@@ -154,3 +154,24 @@ export const deleteCustomer = mutation({
     return { success: true };
   },
 });
+
+// Get sum of all customer funds added (total topups) and count
+export const getCustomersStats = query({
+  args: {},
+  handler: async (ctx) => {
+    const transactions = await ctx.db
+      .query("customerTransactions")
+      .withIndex("by_type", (q) => q.eq("type", "credit"))
+      .collect();
+    
+    const totalFundsAdded = transactions.reduce((sum, t) => sum + t.amount, 0);
+    const customers = await ctx.db.query("customers").collect();
+
+    return {
+      totalFunds: totalFundsAdded,
+      totalCount: customers.length,
+    };
+  },
+});
+
+

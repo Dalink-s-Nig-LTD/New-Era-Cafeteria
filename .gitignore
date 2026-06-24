@@ -26,6 +26,7 @@ desktop.ini
 .env
 .env.local
 .env.production
+.env.*
 
 # Tauri
 src-tauri/target/

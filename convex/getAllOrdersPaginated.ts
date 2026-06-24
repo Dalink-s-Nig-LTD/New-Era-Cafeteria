@@ -9,23 +9,26 @@ import { v } from "convex/values";
 export const getAllOrdersPaginated = query({
   args: {
     batchSize: v.optional(v.number()),
-    cursor: v.optional(v.string()), // lastOrderId from previous batch
+    cursor: v.optional(v.string()),
+    sinceTimestamp: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const batchSize = Math.min(args.batchSize || 1000, 5000);
-    const orders = await ctx.db
-      .query("orders")
-      .withIndex("by_createdAt")
-      .order("desc")
-      .take(batchSize + 1); // +1 to detect if there are more
+    const sinceTimestamp = args.sinceTimestamp || 0;
 
-    const hasMore = orders.length > batchSize;
-    const result = orders.slice(0, batchSize);
+    const result = await ctx.db
+      .query("orders")
+      .withIndex("by_createdAt", (q) => q.gte("createdAt", sinceTimestamp))
+      .order("asc")
+      .paginate({
+        cursor: args.cursor || null,
+        numItems: batchSize,
+      });
 
     return {
-      orders: result,
-      hasMore,
-      nextCursor: hasMore ? result[result.length - 1]?._id : null,
+      orders: result.page,
+      hasMore: !result.isDone,
+      nextCursor: result.continueCursor,
     };
   },
 });
@@ -36,8 +39,8 @@ export const getAllOrdersPaginated = query({
 export const getOrdersCount = query({
   args: {},
   handler: async (ctx) => {
-    const count = await ctx.db.query("orders").collect();
-    return count.length;
+    // Disabled to prevent Convex transaction read limit errors (max 8000 reads)
+    return 0;
   },
 });
 
@@ -54,8 +57,7 @@ export const getOrdersSinceTimestamp = query({
     const batchSize = Math.min(args.batchSize || 1000, 5000);
     const orders = await ctx.db
       .query("orders")
-      .withIndex("by_createdAt")
-      .filter((q) => q.gte(q.field("createdAt"), args.sinceTimestamp))
+      .withIndex("by_createdAt", (q) => q.gte("createdAt", args.sinceTimestamp))
       .order("desc")
       .take(batchSize + 1);
 

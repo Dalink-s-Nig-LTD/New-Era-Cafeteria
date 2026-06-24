@@ -7,9 +7,14 @@ export const checkOrdersByDate = query({
     dateEnd: v.number(),   // timestamp for end of day
   },
   handler: async (ctx, args) => {
-    const allOrders = await ctx.db.query("orders").collect();
-    const dayOrders = allOrders.filter(
-      (order) => order.createdAt >= args.dateStart && order.createdAt < args.dateEnd && order.orderType !== "special"
+    const dayOrdersRaw = await ctx.db
+      .query("orders")
+      .withIndex("by_createdAt", (q) =>
+        q.gte("createdAt", args.dateStart).lt("createdAt", args.dateEnd)
+      )
+      .collect();
+    const dayOrders = dayOrdersRaw.filter(
+      (order) => order.orderType !== "special"
     );
 
     // Fetch all access codes from DB for display info

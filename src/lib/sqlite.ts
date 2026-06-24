@@ -1062,6 +1062,68 @@ class SQLiteOrderDB {
     console.log(`[SQLiteDB] Refreshed all cached orders (${orders.length} total)`);
   }
 
+  async getCachedOrdersPaginated(
+    limit: number,
+    offset: number,
+  ): Promise<
+    Array<{
+      _id: string;
+      items: Array<{
+        menuItemId?: string;
+        name: string;
+        price: number;
+        quantity: number;
+        category?: string;
+        isCustom?: boolean;
+      }>;
+      total: number;
+      paymentMethod: string;
+      status: string;
+      orderType?: string;
+      cashierCode: string;
+      cashierName?: string;
+      clientOrderId?: string;
+      createdAt: number;
+    }>
+  > {
+    const db = await this.ensureDB();
+    const rows: CachedOrderRow[] = await db.select(
+      `SELECT _id, order_data, created_at, cached_at FROM orders_cache ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
+      [limit, offset],
+    );
+
+    return rows.map((row) => JSON.parse(row.order_data));
+  }
+
+  async getSuperAdminOrderStats(): Promise<{
+    totalAmount: number;
+    totalOrders: number;
+    totalWalletAmount: number;
+  }> {
+    const db = await this.ensureDB();
+    const rows: { order_data: string }[] = await db.select(
+      `SELECT order_data FROM orders_cache`,
+    );
+    let totalAmount = 0;
+    let totalOrders = 0;
+    let totalWalletAmount = 0;
+    rows.forEach((row) => {
+      try {
+        const order = JSON.parse(row.order_data);
+        if (order.orderType !== "special") {
+          totalAmount += order.total || 0;
+          totalOrders += 1;
+          if (order.paymentMethod === "customer_balance") {
+            totalWalletAmount += order.total || 0;
+          }
+        }
+      } catch (err) {
+        // ignore parsing errors
+      }
+    });
+    return { totalAmount, totalOrders, totalWalletAmount };
+  }
+
   private rowToQueuedOrder(row: OrderQueueRow): QueuedOrder {
     return {
       id: row.id,

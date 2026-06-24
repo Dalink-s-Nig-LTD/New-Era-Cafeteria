@@ -392,3 +392,58 @@ export const resetAllOrders = mutation({
     return { success: true, deletedCount: orders.length };
   },
 });
+
+// Get monthly sales data for chart
+export const getMonthlySales = query({
+  args: {
+    year: v.optional(v.number()),
+    month: v.optional(v.number()), // 0-indexed (0 = Jan, 11 = Dec)
+  },
+  handler: async (ctx, args) => {
+    const now = new Date();
+    const year = args.year !== undefined ? args.year : now.getFullYear();
+    const month = args.month !== undefined ? args.month : now.getMonth();
+
+    const startOfMonth = new Date(year, month, 1, 0, 0, 0, 0);
+    const endOfMonth = new Date(year, month + 1, 1, 0, 0, 0, 0);
+
+    const startMs = startOfMonth.getTime();
+    const endMs = endOfMonth.getTime();
+
+    const ordersRaw = await ctx.db
+      .query("orders")
+      .withIndex("by_createdAt", (q) =>
+        q.gte("createdAt", startMs).lt("createdAt", endMs)
+      )
+      .collect();
+    const orders = ordersRaw.filter((order) => order.orderType !== "special");
+
+    // Group by day of month (1 to N)
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const salesByDay: Record<number, { revenue: number; orders: number }> = {};
+    for (let d = 1; d <= daysInMonth; d++) {
+      salesByDay[d] = { revenue: 0, orders: 0 };
+    }
+
+    orders.forEach((order) => {
+      const day = new Date(order.createdAt).getDate();
+      if (salesByDay[day]) {
+        salesByDay[day].revenue += order.total;
+        salesByDay[day].orders += 1;
+      }
+    });
+
+    const result = [];
+    for (let d = 1; d <= daysInMonth; d++) {
+      result.push({
+        day: d,
+        date: `${year}-${String(month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`,
+        revenue: salesByDay[d].revenue,
+        orders: salesByDay[d].orders,
+      });
+    }
+
+    return result;
+  },
+});
+

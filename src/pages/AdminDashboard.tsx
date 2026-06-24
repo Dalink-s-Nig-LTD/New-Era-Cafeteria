@@ -1,12 +1,9 @@
 import React, { useState } from "react";
 import { DashboardHeader } from "@/components/layout/DashboardHeader";
-import { StatsCards } from "@/components/admin/StatsCards";
-import { AllTimeSales } from "@/components/admin/AllTimeSales";
 import { TodayOrders } from "@/components/admin/TodayOrders";
-import { SalesChart } from "@/components/admin/SalesChart";
-import { CategoryChart } from "@/components/admin/CategoryChart";
+import { MonthlySales } from "@/components/admin/MonthlySales";
+import { SuperAdminOrders } from "@/components/admin/SuperAdminOrders";
 import { MenuManagement } from "@/components/admin/MenuManagement";
-import { RecentOrders } from "@/components/admin/RecentOrders";
 import { UserManagement } from "@/components/admin/UserManagement";
 import { AccessCodeGenerator } from "@/components/admin/AccessCodeGenerator";
 import { ExportReports } from "@/components/admin/ExportReports";
@@ -34,6 +31,7 @@ import {
   BarChart3,
   GraduationCap,
   Clock,
+  ShoppingCart,
 } from "lucide-react";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useAuth } from "@/contexts/AuthContext";
@@ -46,6 +44,7 @@ interface AdminDashboardProps {
 type TabType =
   | "overview"
   | "sales"
+  | "all-orders"
   | "menu"
   | "customers"
   | "users"
@@ -91,6 +90,12 @@ export function AdminDashboard({ onLogout }: AdminDashboardProps) {
       allowedRoles: ["superadmin", "manager", "vc"],
     },
     {
+      id: "all-orders",
+      label: "All Orders",
+      icon: <ShoppingCart className="w-4 h-4" />,
+      allowedRoles: ["superadmin", "manager", "vc", "supervisor"],
+    },
+    {
       id: "menu",
       label: "Menu",
       icon: <UtensilsCrossed className="w-4 h-4" />,
@@ -112,7 +117,7 @@ export function AdminDashboard({ onLogout }: AdminDashboardProps) {
       id: "codes",
       label: "Access Codes",
       icon: <Key className="w-4 h-4" />,
-      allowedRoles: ["superadmin", "manager"],
+      allowedRoles: ["superadmin", "manager", "vc", "supervisor"],
     },
     {
       id: "reports",
@@ -166,19 +171,19 @@ export function AdminDashboard({ onLogout }: AdminDashboardProps) {
       case "overview":
         return (
           <div className="space-y-4 sm:space-y-6 animate-fade-in">
-            <AllTimeSales />
-            <div className="grid lg:grid-cols-2 gap-4 sm:gap-6">
-              <SalesChart />
-              <CategoryChart />
-            </div>
-            <RecentOrders />
+            <TodayOrders />
           </div>
         );
       case "sales":
         return (
           <div className="space-y-4 sm:space-y-6 animate-fade-in">
-            <TodayOrders />
-            <StatsCards />
+            <MonthlySales />
+          </div>
+        );
+      case "all-orders":
+        return (
+          <div className="animate-fade-in">
+            <SuperAdminOrders />
           </div>
         );
       case "menu":
@@ -200,11 +205,11 @@ export function AdminDashboard({ onLogout }: AdminDashboardProps) {
           </div>
         ) : null;
       case "codes":
-        return canEditMenu ? (
+        return (
           <div className="animate-fade-in">
             <AccessCodeGenerator />
           </div>
-        ) : null;
+        );
       case "reports":
         return (
           <div className="animate-fade-in">

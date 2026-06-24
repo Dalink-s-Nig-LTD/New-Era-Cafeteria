@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "../../../convex/_generated/api";
+import { useAuth } from "@/contexts/AuthContext";
 import type { Id } from "../../../convex/_generated/dataModel";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -38,8 +39,11 @@ interface AccessCodeGeneratorProps {
 }
 
 export function AccessCodeGenerator({
-  isSuperadmin = false,
+  isSuperadmin: isSuperadminProp,
 }: AccessCodeGeneratorProps) {
+  const { role } = useAuth();
+  const isSuperadmin = isSuperadminProp !== undefined ? isSuperadminProp : (role === "superadmin");
+  const canGenerate = role === "superadmin" || role === "manager";
   const codes = useQuery(api.accessCodes.listAccessCodes) || [];
   const enabledShifts = useQuery(
     (api as any).shiftSettings.getEnabledShifts,
@@ -222,16 +226,18 @@ export function AccessCodeGenerator({
               <Key className="w-5 h-5 text-primary" />
               Access Codes
             </CardTitle>
-            <Button
-              onClick={() => {
-                setShowGenerate(true);
-                setGeneratedCode(null);
-              }}
-              className="gap-2 w-full sm:w-auto"
-            >
-              <Plus className="w-4 h-4" />
-              Generate Code
-            </Button>
+            {canGenerate && (
+              <Button
+                onClick={() => {
+                  setShowGenerate(true);
+                  setGeneratedCode(null);
+                }}
+                className="gap-2 w-full sm:w-auto"
+              >
+                <Plus className="w-4 h-4" />
+                Generate Code
+              </Button>
+            )}
           </div>
         </CardHeader>
         <CardContent>
@@ -245,7 +251,7 @@ export function AccessCodeGenerator({
                   <TableHead>Status</TableHead>
                   <TableHead>Expires</TableHead>
                   <TableHead>Usage</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
+                  {canGenerate && <TableHead className="text-right">Actions</TableHead>}
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -317,19 +323,21 @@ export function AccessCodeGenerator({
                         : "Never"}
                     </TableCell>
                     <TableCell>{code.usedCount} times</TableCell>
-                    <TableCell className="text-right">
-                      {code.isActive && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="text-destructive hover:text-destructive"
-                          onClick={() => handleDeactivateCode(code._id)}
-                        >
-                          <Ban className="w-4 h-4 mr-1" />
-                          Deactivate
-                        </Button>
-                      )}
-                    </TableCell>
+                    {canGenerate && (
+                      <TableCell className="text-right">
+                        {code.isActive && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-destructive hover:text-destructive"
+                            onClick={() => handleDeactivateCode(code._id)}
+                          >
+                            <Ban className="w-4 h-4 mr-1" />
+                            Deactivate
+                          </Button>
+                        )}
+                      </TableCell>
+                    )}
                   </TableRow>
                 ))}
               </TableBody>
@@ -413,7 +421,7 @@ export function AccessCodeGenerator({
                     <p>{code.usedCount} times</p>
                   </div>
                 </div>
-                {code.isActive && (
+                {code.isActive && canGenerate && (
                   <Button
                     variant="outline"
                     size="sm"
