@@ -89,9 +89,9 @@ export function SuperAdminOrders() {
       setCachedCount(count);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       setOrders(pageOrders as any);
-    } catch (err) {
+    } catch (err: any) {
       console.error("Error loading SQLite data:", err);
-      setError("Failed to load local data from SQLite database.");
+      setError(`Failed to load local data from SQLite database: ${err?.message || JSON.stringify(err) || err}`);
     }
   };
 
@@ -206,9 +206,9 @@ export function SuperAdminOrders() {
       setTimeout(() => {
         setSyncStatus("");
       }, 3000);
-    } catch (err) {
+    } catch (err: any) {
       console.error("Failed to clear cache:", err);
-      setError("Failed to clear local cache.");
+      setError(`Failed to clear local cache: ${err?.message || JSON.stringify(err) || err}`);
     }
   };
 
@@ -219,10 +219,10 @@ export function SuperAdminOrders() {
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
           <h3 className="text-xl font-semibold text-foreground font-display">
-            Order Administration (Super Admin)
+            Order Administration
           </h3>
           <p className="text-sm text-muted-foreground">
-            Manage, sync, and view all orders cached in local SQLite database.
+            Manage, sync, and view all orders
           </p>
         </div>
 

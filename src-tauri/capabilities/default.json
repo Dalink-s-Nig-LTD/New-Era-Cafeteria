@@ -21,6 +21,9 @@
     "core:window:allow-unmaximize",
     "core:window:allow-unminimize",
     "sql:default",
-    "sql:allow-execute"
+    "sql:allow-execute",
+    "sql:allow-select",
+    "sql:allow-load",
+    "sql:allow-close"
   ]
 }

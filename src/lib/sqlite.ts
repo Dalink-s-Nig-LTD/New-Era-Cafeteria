@@ -1,25 +1,14 @@
 // SQLite database layer for Tauri desktop app
 // Uses @tauri-apps/plugin-sql for native SQLite access
-
-// Dynamic import to prevent bundling issues in production
-interface TauriSQLDatabase {
-  load(dbName: string): Promise<TauriDB>;
-}
+import Database from "@tauri-apps/plugin-sql";
+import { Order } from "@/types/cafeteria";
 
 interface TauriDB {
   execute(sql: string, params?: (string | number | null)[]): Promise<{ rowsAffected: number }>;
   select(sql: string, params?: (string | number | null)[]): Promise<Record<string, unknown>[]>;
 }
 
-let Database: TauriSQLDatabase | null = null;
-const loadDatabase = async (): Promise<TauriSQLDatabase> => {
-  if (!Database) {
-    const mod = await import("@tauri-apps/plugin-sql");
-    Database = mod.default;
-  }
-  return Database;
-};
-import { Order } from "@/types/cafeteria";
+
 
 export interface QueuedOrder {
   id: string;
@@ -87,7 +76,8 @@ interface CachedOrderRow {
 }
 
 class SQLiteOrderDB {
-  private db: TauriDB | null = null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private db: any | null = null;
   private initPromise: Promise<void> | null = null;
 
   async init(): Promise<void> {
@@ -104,8 +94,7 @@ class SQLiteOrderDB {
     this.initPromise = (async () => {
       try {
         console.log("[SQLiteDB] Loading database: sqlite:orders.db");
-        const DB = await loadDatabase();
-        this.db = await DB.load("sqlite:orders.db");
+        this.db = await Database.load("sqlite:orders.db");
         console.log("[SQLiteDB] Database loaded successfully");
         
         console.log("[SQLiteDB] Creating order_queue table if not exists...");
@@ -1110,9 +1099,9 @@ class SQLiteOrderDB {
     rows.forEach((row) => {
       try {
         const order = JSON.parse(row.order_data);
+        totalOrders += 1; // count ALL orders
         if (order.orderType !== "special") {
           totalAmount += order.total || 0;
-          totalOrders += 1;
           if (order.paymentMethod === "customer_balance") {
             totalWalletAmount += order.total || 0;
           }
